@@ -9,7 +9,9 @@ public enum ExchangeName {
     COINEX("coinex"),
     BITMART("bitmart"),
     KUCOIN("kucoin"),
-    GATEIO("gateio");
+    GATEIO("gateio"),
+    EXSTUB1("exstub1"),
+    EXSTUB2("exstub2");
 
     private final String id;
 

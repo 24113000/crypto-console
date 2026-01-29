@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    exstub1:
+      baseUrl: "http://localhost"
