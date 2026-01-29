@@ -12,7 +12,6 @@ import com.crypto.console.repl.ReplRunner;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Import;
 
 @Configuration
 @EnableConfigurationProperties({AppProperties.class, SecretsProperties.class})

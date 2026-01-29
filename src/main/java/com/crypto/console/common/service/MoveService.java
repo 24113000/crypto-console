@@ -104,7 +104,7 @@ public class MoveService {
                 .thenComparing(n -> priorityIndex(priority, n))
                 .thenComparing(String::compareTo));
 
-        return candidates.get(0);
+        return candidates.getFirst();
     }
 
     private int priorityIndex(List<String> priority, String network) {
