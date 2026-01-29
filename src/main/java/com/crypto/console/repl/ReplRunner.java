@@ -1,18 +1,17 @@
 package com.crypto.console.repl;
 
 import com.crypto.console.common.command.Command;
-import com.crypto.console.common.command.CommandParser;
+import com.crypto.console.common.command.impl.CommandParser;
 import com.crypto.console.common.command.CommandType;
 import com.crypto.console.common.model.CommandResult;
 import com.crypto.console.common.service.CommandExecutor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
+@Slf4j
 public class ReplRunner {
-    private static final Logger log = LoggerFactory.getLogger(ReplRunner.class);
 
     private final CommandParser parser;
     private final CommandExecutor executor;
@@ -42,7 +41,7 @@ public class ReplRunner {
                 }
             }
         } catch (Exception e) {
-            log.error("REPL failed: {}", e.getMessage());
+            LOG.error("REPL failed: {}", e.getMessage());
             System.err.println("REPL failed: " + e.getMessage());
         }
     }

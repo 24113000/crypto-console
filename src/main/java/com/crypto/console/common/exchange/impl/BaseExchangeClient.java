@@ -1,5 +1,6 @@
-package com.crypto.console.common.exchange;
+package com.crypto.console.common.exchange.impl;
 
+import com.crypto.console.common.exchange.ExchangeClient;
 import com.crypto.console.common.properties.AppProperties;
 import com.crypto.console.common.properties.SecretsProperties;
 import com.crypto.console.common.model.ExchangeCapabilities;

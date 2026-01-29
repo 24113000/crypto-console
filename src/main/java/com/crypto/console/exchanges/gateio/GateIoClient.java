@@ -2,7 +2,7 @@ package com.crypto.console.exchanges.gateio;
 
 import com.crypto.console.common.properties.AppProperties;
 import com.crypto.console.common.properties.SecretsProperties;
-import com.crypto.console.common.exchange.BaseExchangeClient;
+import com.crypto.console.common.exchange.impl.BaseExchangeClient;
 import com.crypto.console.common.model.*;
 
 import java.math.BigDecimal;

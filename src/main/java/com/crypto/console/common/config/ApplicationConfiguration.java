@@ -1,7 +1,7 @@
 package com.crypto.console.common.config;
 
-import com.crypto.console.common.command.CommandParser;
-import com.crypto.console.common.exchange.ExchangeRegistry;
+import com.crypto.console.common.command.impl.CommandParser;
+import com.crypto.console.common.exchange.impl.ExchangeRegistry;
 import com.crypto.console.common.properties.AppProperties;
 import com.crypto.console.common.properties.SecretsProperties;
 import com.crypto.console.common.service.CommandExecutor;

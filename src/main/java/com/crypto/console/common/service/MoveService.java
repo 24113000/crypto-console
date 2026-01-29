@@ -2,7 +2,7 @@ package com.crypto.console.common.service;
 
 import com.crypto.console.common.properties.AppProperties;
 import com.crypto.console.common.exchange.ExchangeClient;
-import com.crypto.console.common.exchange.ExchangeRegistry;
+import com.crypto.console.common.exchange.impl.ExchangeRegistry;
 import com.crypto.console.common.model.Balance;
 import com.crypto.console.common.model.ExchangeException;
 import com.crypto.console.common.model.WithdrawResult;

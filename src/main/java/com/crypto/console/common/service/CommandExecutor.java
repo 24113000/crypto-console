@@ -1,18 +1,18 @@
 package com.crypto.console.common.service;
 
 import com.crypto.console.common.command.*;
+import com.crypto.console.common.command.impl.*;
 import com.crypto.console.common.exchange.ExchangeClient;
-import com.crypto.console.common.exchange.ExchangeRegistry;
+import com.crypto.console.common.exchange.impl.ExchangeRegistry;
 import com.crypto.console.common.model.*;
 import com.crypto.console.common.util.LogSanitizer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.Comparator;
 import java.util.Map;
 
+@Slf4j
 public class CommandExecutor {
-    private static final Logger log = LoggerFactory.getLogger(CommandExecutor.class);
 
     private final ExchangeRegistry registry;
     private final MoveService moveService;
@@ -26,7 +26,7 @@ public class CommandExecutor {
 
     public CommandResult execute(Command command) {
         String raw = command.raw();
-        log.info("COMMAND: {}", LogSanitizer.sanitize(raw));
+        LOG.info("COMMAND: {}", LogSanitizer.sanitize(raw));
         try {
             return switch (command.type()) {
                 case HELP -> CommandResult.success(helpText());
@@ -40,10 +40,10 @@ public class CommandExecutor {
                 default -> CommandResult.failure("Unsupported command");
             };
         } catch (ExchangeException e) {
-            log.warn("FAILED: {}", LogSanitizer.sanitize(e.getUserMessage()));
+            LOG.warn("FAILED: {}", LogSanitizer.sanitize(e.getUserMessage()));
             return CommandResult.failure("FAILED: " + e.getUserMessage());
         } catch (Exception e) {
-            log.error("FAILED: {}", LogSanitizer.sanitize(e.getMessage()));
+            LOG.error("FAILED: {}", LogSanitizer.sanitize(e.getMessage()));
             return CommandResult.failure("FAILED: " + e.getMessage());
         }
     }
@@ -54,7 +54,7 @@ public class CommandExecutor {
         Balance balance = client.getBalance(cmd.asset);
         String message = String.format("%s %s free=%s locked=%s",
                 client.name(), cmd.asset, balance.free, balance.locked == null ? "0" : balance.locked);
-        log.info("SUCCESS: {}", message);
+        LOG.info("SUCCESS: {}", message);
         return CommandResult.success(message);
     }
 
@@ -66,7 +66,7 @@ public class CommandExecutor {
         fees.feeByNetwork.entrySet().stream()
                 .sorted(Comparator.comparing(Map.Entry::getKey))
                 .forEach(entry -> sb.append("\n  ").append(entry.getKey()).append(": ").append(entry.getValue()));
-        log.info("SUCCESS: {}", LogSanitizer.sanitize(sb.toString()));
+        LOG.info("SUCCESS: {}", LogSanitizer.sanitize(sb.toString()));
         return CommandResult.success(sb.toString());
     }
 
@@ -86,7 +86,7 @@ public class CommandExecutor {
         for (OrderBookEntry entry : book.asks) {
             sb.append("\n  ").append(entry.price).append(" x ").append(entry.quantity);
         }
-        log.info("SUCCESS: {}", LogSanitizer.sanitize(sb.toString()));
+        LOG.info("SUCCESS: {}", LogSanitizer.sanitize(sb.toString()));
         return CommandResult.success(sb.toString());
     }
 
@@ -98,7 +98,7 @@ public class CommandExecutor {
         }
         OrderResult result = client.marketBuy(cmd.baseAsset, cmd.quoteAsset, cmd.quoteAmount);
         String message = "BUY placed on " + client.name() + ": " + result.status + " id=" + result.orderId;
-        log.info("SUCCESS: {}", message);
+        LOG.info("SUCCESS: {}", message);
         return CommandResult.success(message);
     }
 
@@ -110,7 +110,7 @@ public class CommandExecutor {
         }
         OrderResult result = client.marketSell(cmd.baseAsset, cmd.quoteAsset, cmd.baseAmount);
         String message = "SELL placed on " + client.name() + ": " + result.status + " id=" + result.orderId;
-        log.info("SUCCESS: {}", message);
+        LOG.info("SUCCESS: {}", message);
         return CommandResult.success(message);
     }
 
@@ -118,7 +118,7 @@ public class CommandExecutor {
         requireSecrets(cmd.from);
         requireSecrets(cmd.to);
         String message = moveService.move(cmd.from, cmd.to, cmd.amount, cmd.asset);
-        log.info("SUCCESS: {}", LogSanitizer.sanitize(message));
+        LOG.info("SUCCESS: {}", LogSanitizer.sanitize(message));
         return CommandResult.success(message);
     }
 

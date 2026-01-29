@@ -1,4 +1,7 @@
-package com.crypto.console.common.command;
+package com.crypto.console.common.command.impl;
+
+import com.crypto.console.common.command.Command;
+import com.crypto.console.common.command.CommandType;
 
 import java.math.BigDecimal;
 

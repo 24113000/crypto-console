@@ -14,6 +14,14 @@ public class SecretsProperties {
     @NotEmpty
     private Map<String, @Valid ExchangeSecrets> exchanges;
 
+    public Map<String, ExchangeSecrets> getExchanges() {
+        return exchanges;
+    }
+
+    public void setExchanges(Map<String, ExchangeSecrets> exchanges) {
+        this.exchanges = exchanges;
+    }
+
     public static class ExchangeSecrets {
         @NotBlank
         private String apiKey;
@@ -62,14 +70,6 @@ public class SecretsProperties {
         public void setApiVersion(String apiVersion) {
             this.apiVersion = apiVersion;
         }
-    }
-
-    public Map<String, ExchangeSecrets> getExchanges() {
-        return exchanges;
-    }
-
-    public void setExchanges(Map<String, ExchangeSecrets> exchanges) {
-        this.exchanges = exchanges;
     }
 }
 

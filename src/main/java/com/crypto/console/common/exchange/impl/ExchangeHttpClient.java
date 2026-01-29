@@ -1,4 +1,4 @@
-package com.crypto.console.common.exchange;
+package com.crypto.console.common.exchange.impl;
 
 import com.crypto.console.common.model.ExchangeException;
 import org.springframework.http.HttpStatusCode;

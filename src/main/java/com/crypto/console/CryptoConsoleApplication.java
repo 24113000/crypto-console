@@ -1,15 +1,14 @@
 package com.crypto.console;
 
 import com.crypto.console.repl.ReplRunner;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
+@Slf4j
 public class CryptoConsoleApplication implements CommandLineRunner {
-    private static final Logger log = LoggerFactory.getLogger(CryptoConsoleApplication.class);
     private final ReplRunner replRunner;
 
     public CryptoConsoleApplication(ReplRunner replRunner) {
@@ -25,7 +24,7 @@ public class CryptoConsoleApplication implements CommandLineRunner {
         try {
             replRunner.run();
         } catch (Exception e) {
-            log.error("Startup failed: {}", e.getMessage());
+            LOG.error("Startup failed: {}", e.getMessage());
             System.err.println("Startup failed: " + e.getMessage());
         }
     }
