@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    kucoin:
+      baseUrl: "https://api.kucoin.com"

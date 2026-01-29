@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    gateio:
+      baseUrl: "https://api.gateio.ws"

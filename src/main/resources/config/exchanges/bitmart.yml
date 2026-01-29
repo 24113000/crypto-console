@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    bitmart:
+      baseUrl: "https://api-cloud.bitmart.com"

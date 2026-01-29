@@ -1,0 +1,16 @@
+spring:
+  main:
+    web-application-type: none
+  config:
+    import:
+      - "optional:file:./config/base.yml"
+      - "optional:file:./config/exchanges/*.yml"
+      - "optional:file:./secrets/*.yml"
+      - "optional:classpath:config/base.yml"
+      - "optional:classpath:config/exchanges/*.yml"
+      - "optional:classpath:secrets/*.yml"
+logging:
+  file:
+    name: ./logs/app.log
+  level:
+    root: INFO

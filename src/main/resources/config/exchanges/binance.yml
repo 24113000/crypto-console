@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    binance:
+      baseUrl: "https://api.binance.com"

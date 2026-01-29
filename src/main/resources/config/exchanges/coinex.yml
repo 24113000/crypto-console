@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    coinex:
+      baseUrl: "https://api.coinex.com"

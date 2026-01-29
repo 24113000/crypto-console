@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    xt:
+      baseUrl: "https://sapi.xt.com"

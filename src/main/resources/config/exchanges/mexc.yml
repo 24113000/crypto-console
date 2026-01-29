@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    mexc:
+      baseUrl: "https://api.mexc.com"
