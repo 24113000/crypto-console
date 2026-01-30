@@ -5,6 +5,7 @@ import com.crypto.console.common.command.impl.CommandParser;
 import com.crypto.console.common.command.CommandType;
 import com.crypto.console.common.model.CommandResult;
 import com.crypto.console.common.service.CommandExecutor;
+import com.crypto.console.common.util.ConsoleOutput;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.BufferedReader;
@@ -22,22 +23,22 @@ public class ReplRunner {
     }
 
     public void run() {
-        System.out.println("Crypto Console REPL. Type 'help' for commands, 'exit' to quit.");
+        ConsoleOutput.printlnGreen("Crypto Console REPL. Type 'help' for commands, 'exit' to quit.");
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
             while (true) {
-                System.out.print("> ");
+                ConsoleOutput.printGreen("> ");
                 String line = reader.readLine();
                 if (line == null) {
                     break;
                 }
                 Command command = parser.parse(line);
                 if (command.type() == CommandType.EXIT) {
-                    System.out.println("Bye.");
+                    ConsoleOutput.printlnGreen("Bye.");
                     break;
                 }
                 CommandResult result = executor.execute(command);
                 if (result != null && result.message != null && !result.message.isEmpty()) {
-                    System.out.println(result.message);
+                    ConsoleOutput.printlnGreen(result.message);
                 }
             }
         } catch (Exception e) {
@@ -46,5 +47,4 @@ public class ReplRunner {
         }
     }
 }
-
 
