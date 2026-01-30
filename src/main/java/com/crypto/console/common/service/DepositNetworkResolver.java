@@ -1,41 +1,50 @@
 package com.crypto.console.common.service;
 
-import com.crypto.console.common.properties.AppProperties;
 import com.crypto.console.common.exchange.DepositNetworkProvider;
 import com.crypto.console.common.exchange.ExchangeClient;
 import com.crypto.console.common.model.ExchangeException;
+import com.crypto.console.common.properties.AppProperties;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
+@Slf4j
 public class DepositNetworkResolver {
-    private final AppProperties config;
-
     public DepositNetworkResolver(AppProperties config) {
-        this.config = config;
     }
 
-    public Set<String> resolveDepositNetworks(ExchangeClient client, String exchange, String asset) {
-        if (client.capabilities().supportsDepositNetworks && client instanceof DepositNetworkProvider provider) {
-            Set<String> fromApi = provider.getDepositNetworks(asset);
-            if (fromApi != null && !fromApi.isEmpty()) {
-                return fromApi;
-            }
+    public Set<String> resolveDepositNetworks(ExchangeClient destination, String exchange, String asset) {
+        Set<String> fromApi = getFromDestination(destination, asset);
+        if (!fromApi.isEmpty()) {
+            LOG.info("Using deposit networks from destination exchange {} for asset {}", exchange, asset);
+            return fromApi;
         }
 
-        Map<String, List<String>> exchangeFallback = config.getSupportedNetworksFallback() == null
-                ? null
-                : config.getSupportedNetworksFallback().get(exchange);
-        if (exchangeFallback == null) {
-            throw new ExchangeException("No supported network data for exchange: " + exchange);
+        throw new ExchangeException("No deposit networks returned by destination exchange: " + exchange + " " + asset);
+    }
+
+    private Set<String> getFromDestination(ExchangeClient destination, String asset) {
+        if (!destination.capabilities().supportsDepositNetworks || !(destination instanceof DepositNetworkProvider provider)) {
+            return Set.of();
         }
-        List<String> assetNetworks = exchangeFallback.get(asset);
-        if (assetNetworks == null || assetNetworks.isEmpty()) {
-            throw new ExchangeException("No supported network data for " + exchange + " " + asset);
+        Set<String> networks = provider.getDepositNetworks(asset);
+        if (networks == null || networks.isEmpty()) {
+            return Set.of();
         }
-        return new HashSet<>(assetNetworks);
+        return normalizeNetworks(networks);
+    }
+
+    private Set<String> normalizeNetworks(Iterable<String> networks) {
+        Set<String> normalized = new HashSet<>();
+        for (String network : networks) {
+            if (StringUtils.isBlank(network)) {
+                continue;
+            }
+            normalized.add(network.trim().toUpperCase());
+        }
+        return normalized;
     }
 }
 

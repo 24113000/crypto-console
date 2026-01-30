@@ -2,6 +2,7 @@ package com.crypto.console.common.service;
 
 import com.crypto.console.common.properties.AppProperties;
 import com.crypto.console.common.exchange.ExchangeClient;
+import com.crypto.console.common.exchange.ExchangeName;
 import com.crypto.console.common.exchange.impl.ExchangeRegistry;
 import com.crypto.console.common.model.Balance;
 import com.crypto.console.common.model.ExchangeException;
@@ -23,12 +24,14 @@ public class MoveService {
     private final AppProperties config;
     private final FeeResolver feeResolver;
     private final DepositNetworkResolver networkResolver;
+    private final NetworkSelector networkSelector;
 
-    public MoveService(ExchangeRegistry registry, AppProperties config, FeeResolver feeResolver, DepositNetworkResolver networkResolver) {
+    public MoveService(ExchangeRegistry registry, AppProperties config, FeeResolver feeResolver, DepositNetworkResolver networkResolver, NetworkSelector networkSelector) {
         this.registry = registry;
         this.config = config;
         this.feeResolver = feeResolver;
         this.networkResolver = networkResolver;
+        this.networkSelector = networkSelector;
     }
 
     public String move(String from, String to, BigDecimal amount, String asset) {
@@ -41,17 +44,22 @@ public class MoveService {
         Set<String> networks = networkResolver.resolveDepositNetworks(recipient, to, asset);
         WithdrawalFees senderFees = feeResolver.resolveWithdrawalFees(sender, from, asset);
 
-        String selectedNetwork = selectNetwork(asset, networks, senderFees);
+        String selectedNetwork = selectNetwork(to, asset, networks, senderFees);
         AppProperties.AddressConfig addressConfig = getAddressConfig(to, asset, selectedNetwork);
+        String address = addressConfig == null ? null : addressConfig.getAddress();
         String memo = addressConfig == null ? null : addressConfig.getMemo();
-        if (addressConfig == null || StringUtils.isBlank(addressConfig.getAddress())) {
-            throw new ExchangeException("Missing withdrawal address for " + to + " " + asset + " " + selectedNetwork);
+        if (StringUtils.isBlank(address)) {
+            if (isStubExchange(to)) {
+                address = "STUB-ADDRESS";
+            } else {
+                throw new ExchangeException("Missing withdrawal address for " + to + " " + asset + " " + selectedNetwork);
+            }
         }
-        if (Boolean.TRUE.equals(addressConfig.getMemoRequired()) && StringUtils.isBlank(memo)) {
+        if (Boolean.TRUE.equals(addressConfig == null ? null : addressConfig.getMemoRequired()) && StringUtils.isBlank(memo)) {
             throw new ExchangeException("Memo/tag required for " + asset + " on " + selectedNetwork + " but missing in config");
         }
 
-        WithdrawResult result = sender.withdraw(asset, amount, selectedNetwork, addressConfig.getAddress(), memo);
+        WithdrawResult result = sender.withdraw(asset, amount, selectedNetwork, address, memo);
         String withdrawalId = result == null ? "" : result.withdrawalId;
 
         boolean success = pollForDeposit(
@@ -85,7 +93,7 @@ public class MoveService {
         return false;
     }
 
-    private String selectNetwork(String asset, Set<String> networks, WithdrawalFees fees) {
+    private String selectNetwork(String exchange, String asset, Set<String> networks, WithdrawalFees fees) {
         List<String> candidates = new ArrayList<>(networks);
         if (candidates.isEmpty()) {
             throw new ExchangeException("No deposit networks available for " + asset);
@@ -104,7 +112,7 @@ public class MoveService {
                 .thenComparing(n -> priorityIndex(priority, n))
                 .thenComparing(String::compareTo));
 
-        return candidates.getFirst();
+        return networkSelector.selectNetwork(exchange, asset, candidates);
     }
 
     private int priorityIndex(List<String> priority, String network) {
@@ -129,6 +137,9 @@ public class MoveService {
         }
         return assetMap.get(network);
     }
+
+    private boolean isStubExchange(String exchange) {
+        ExchangeName name = ExchangeName.from(exchange);
+        return name == ExchangeName.EXSTUB1 || name == ExchangeName.EXSTUB2;
+    }
 }
-
-

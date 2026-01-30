@@ -8,6 +8,7 @@ import com.crypto.console.common.service.CommandExecutor;
 import com.crypto.console.common.service.DepositNetworkResolver;
 import com.crypto.console.common.service.FeeResolver;
 import com.crypto.console.common.service.MoveService;
+import com.crypto.console.common.service.NetworkSelector;
 import com.crypto.console.repl.ReplRunner;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -32,8 +33,13 @@ public class ApplicationConfiguration {
     }
 
     @Bean
-    public MoveService moveService(ExchangeRegistry registry, AppProperties appProperties, FeeResolver feeResolver, DepositNetworkResolver depositNetworkResolver) {
-        return new MoveService(registry, appProperties, feeResolver, depositNetworkResolver);
+    public NetworkSelector networkSelector() {
+        return new NetworkSelector();
+    }
+
+    @Bean
+    public MoveService moveService(ExchangeRegistry registry, AppProperties appProperties, FeeResolver feeResolver, DepositNetworkResolver depositNetworkResolver, NetworkSelector networkSelector) {
+        return new MoveService(registry, appProperties, feeResolver, depositNetworkResolver, networkSelector);
     }
 
     @Bean

@@ -1,17 +1,16 @@
 package com.crypto.console.common.config;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.env.EnvironmentPostProcessor;
+import org.springframework.boot.env.PropertySourceLoader;
+import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
-import org.springframework.boot.env.PropertySourceLoader;
-import org.springframework.boot.env.YamlPropertySourceLoader;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -20,8 +19,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
 
+@Slf4j
 public class ConfigDirectoryEnvironmentPostProcessor implements EnvironmentPostProcessor, Ordered {
-    private static final Logger LOG = LoggerFactory.getLogger(ConfigDirectoryEnvironmentPostProcessor.class);
     private static final String CONFIG_DIR_PROP = "app.config.dir";
 
     @Override

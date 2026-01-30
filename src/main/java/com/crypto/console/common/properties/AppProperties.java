@@ -19,7 +19,6 @@ public class AppProperties {
     @NotEmpty
     private Map<String, @Valid ExchangeConfig> exchanges;
     private Map<String, Map<String, Map<String, AddressConfig>>> withdrawalAddresses;
-    private Map<String, Map<String, List<String>>> supportedNetworksFallback;
     private Map<String, Map<String, Map<String, String>>> withdrawFeesFallback;
 
     public static class PollingConfig {
@@ -120,13 +119,6 @@ public class AppProperties {
         this.withdrawalAddresses = withdrawalAddresses;
     }
 
-    public Map<String, Map<String, List<String>>> getSupportedNetworksFallback() {
-        return supportedNetworksFallback;
-    }
-
-    public void setSupportedNetworksFallback(Map<String, Map<String, List<String>>> supportedNetworksFallback) {
-        this.supportedNetworksFallback = supportedNetworksFallback;
-    }
 
     public Map<String, Map<String, Map<String, String>>> getWithdrawFeesFallback() {
         return withdrawFeesFallback;

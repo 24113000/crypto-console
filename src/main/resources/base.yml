@@ -1,0 +1,28 @@
+app:
+  polling:
+    intervalSeconds: 10
+    maxWaitSeconds: 1800
+  networkPriority:
+    USDT: [TRC20, BEP20, ERC20]
+  withdrawalAddresses:
+    mexc:
+      USDT:
+        TRC20:
+          address: "Txxxxx"
+        ERC20:
+          address: "0x..."
+    kucoin:
+      XRP:
+        XRP:
+          address: "r..."
+          memo: "123456"
+          memoRequired: true
+  withdrawFeesFallback:
+    binance:
+      USDT:
+        TRC20: "1"
+        ERC20: "5"
+    mexc:
+      USDT:
+        TRC20: "1"
+        ERC20: "5"

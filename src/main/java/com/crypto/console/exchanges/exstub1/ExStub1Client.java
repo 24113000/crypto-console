@@ -1,5 +1,6 @@
 package com.crypto.console.exchanges.exstub1;
 
+import com.crypto.console.common.exchange.DepositNetworkProvider;
 import com.crypto.console.common.exchange.impl.BaseExchangeClient;
 import com.crypto.console.common.model.Balance;
 import com.crypto.console.common.model.ExchangeCapabilities;
@@ -15,9 +16,10 @@ import lombok.extern.slf4j.Slf4j;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Slf4j
-public class ExStub1Client extends BaseExchangeClient {
+public class ExStub1Client extends BaseExchangeClient implements DepositNetworkProvider {
     public ExStub1Client(AppProperties.ExchangeConfig cfg, SecretsProperties.ExchangeSecrets secrets) {
         super("exstub1", cfg, secrets);
     }
@@ -31,7 +33,10 @@ public class ExStub1Client extends BaseExchangeClient {
     @Override
     public WithdrawalFees getWithdrawalFees(String asset) {
         LOG.info("exstub1 getWithdrawalFees asset={}", asset);
-        return new WithdrawalFees(asset, Map.of("STUB", BigDecimal.ZERO));
+        return new WithdrawalFees(asset, Map.of(
+                "STUBNET", BigDecimal.ONE,
+                "STUBNET2", BigDecimal.TEN
+        ));
     }
 
     @Override
@@ -65,7 +70,13 @@ public class ExStub1Client extends BaseExchangeClient {
     }
 
     @Override
+    public Set<String> getDepositNetworks(String asset) {
+        LOG.info("exstub1 getDepositNetworks asset={}", asset);
+        return Set.of("STUBNET");
+    }
+
+    @Override
     public ExchangeCapabilities capabilities() {
-        return new ExchangeCapabilities(true, true, true, true, true, false, false);
+        return new ExchangeCapabilities(true, true, true, true, true, false, true);
     }
 }
