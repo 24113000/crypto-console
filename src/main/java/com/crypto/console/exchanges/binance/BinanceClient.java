@@ -82,82 +82,30 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         if (quoteAmount == null || quoteAmount.signum() <= 0) {
             throw new ExchangeException("Quote amount must be positive");
         }
-        String apiKey = secrets == null ? null : secrets.getApiKey();
-        String apiSecret = secrets == null ? null : secrets.getApiSecret();
-        if (StringUtils.isBlank(apiKey) || StringUtils.isBlank(apiSecret)) {
-            throw new ExchangeException("Missing API credentials for binance");
-        }
-
-        // 1) Move quote asset from Funding to Spot.
-        transferFundingToSpot(apiKey, apiSecret, quote, quoteAmount);
-
-        // 2) Resolve symbol and place market buy using quoteOrderQty.
-        String symbol = resolveSymbol(base, quote);
-        if (symbol == null) {
-            throw new ExchangeException("Invalid symbol: " + (base + quote).toUpperCase() + ". Check base/quote assets.");
-        }
-        long ts = System.currentTimeMillis();
-        String orderQuery = "symbol=" + symbol
-                + "&side=BUY"
-                + "&type=MARKET"
-                + "&quoteOrderQty=" + quoteAmount.toPlainString()
-                + "&newOrderRespType=RESULT"
-                + "&timestamp=" + ts
-                + "&recvWindow=5000";
-        String orderSignature = sign(orderQuery, apiSecret);
-        String orderUri = "/api/v3/order?" + orderQuery + "&signature=" + orderSignature;
-
-        JsonNode orderResp = webClient.post()
-                .uri(orderUri)
-                .header(HttpHeaders.USER_AGENT, "crypto-console")
-                .header("X-MBX-APIKEY", apiKey)
-                .retrieve()
-                .bodyToMono(JsonNode.class)
-                .onErrorResume(org.springframework.web.reactive.function.client.WebClientResponseException.class, ex -> {
-                    String body = ex.getResponseBodyAsString();
-                    String msg = "Binance order failed: HTTP " + ex.getStatusCode().value();
-                    if (body != null && !body.isBlank()) {
-                        msg = msg + " body=" + body;
-                    }
-                    return reactor.core.publisher.Mono.error(new ExchangeException(msg, ex));
-                })
-                .block();
-
-        if (orderResp == null || orderResp.get("orderId") == null) {
-            throw new ExchangeException("Unexpected response from Binance order API");
-        }
-
-        long orderId = orderResp.get("orderId").asLong();
-        String status = orderResp.hasNonNull("status") ? orderResp.get("status").asText() : "NEW";
-        BigDecimal executedQty = toDecimal(orderResp.get("executedQty"));
-
-        // 3) Wait until filled.
-        if (!"FILLED".equalsIgnoreCase(status)) {
-            OrderStatusResult finalStatus = pollOrderStatus(apiKey, apiSecret, symbol, orderId);
-            status = finalStatus.status;
-            executedQty = finalStatus.executedQty;
-        }
-
-        if (!"FILLED".equalsIgnoreCase(status)) {
-            return new OrderResult(String.valueOf(orderId), status, "Order not filled");
-        }
-
-        if (executedQty.signum() <= 0) {
-            throw new ExchangeException("Order filled but executed quantity is zero");
-        }
-
-        // 4) Move bought base asset from Spot to Funding (use actual spot free balance).
-        BigDecimal spotFree = getSpotFreeBalance(apiKey, apiSecret, base);
-        if (spotFree.signum() > 0) {
-            transferSpotToFunding(apiKey, apiSecret, base, spotFree);
-        }
-
-        return new OrderResult(String.valueOf(orderId), status, "filledQty=" + executedQty);
+        return executeMarketOrder(
+                OrderSide.BUY,
+                base,
+                quote,
+                quoteAmount,
+                true
+        );
     }
 
     @Override
     public OrderResult marketSell(String base, String quote, BigDecimal baseAmount) {
-        throw notImplemented("POST /api/v3/order (signed)");
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        if (baseAmount == null || baseAmount.signum() <= 0) {
+            throw new ExchangeException("Base amount must be positive");
+        }
+        return executeMarketOrder(
+                OrderSide.SELL,
+                base,
+                quote,
+                baseAmount,
+                false
+        );
     }
 
     @Override
@@ -339,6 +287,215 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
     }
 
     private record OrderStatusResult(String status, BigDecimal executedQty) {
+    }
+
+    private OrderResult executeMarketOrder(OrderSide side, String base, String quote, BigDecimal amount, boolean isQuoteAmount) {
+        String apiKey = secrets == null ? null : secrets.getApiKey();
+        String apiSecret = secrets == null ? null : secrets.getApiSecret();
+        if (StringUtils.isBlank(apiKey) || StringUtils.isBlank(apiSecret)) {
+            throw new ExchangeException("Missing API credentials for binance");
+        }
+
+        // 1) Move funds from Funding to Spot.
+        if (side == OrderSide.BUY) {
+            transferFundingToSpot(apiKey, apiSecret, quote, amount);
+        } else {
+            transferFundingToSpot(apiKey, apiSecret, base, amount);
+        }
+
+        // 2) Resolve symbol and place market order.
+        String symbol = resolveSymbol(base, quote);
+        if (symbol == null) {
+            throw new ExchangeException("Invalid symbol: " + (base + quote).toUpperCase() + ". Check base/quote assets.");
+        }
+        long ts = System.currentTimeMillis();
+        StringBuilder orderQuery = new StringBuilder();
+        orderQuery.append("symbol=").append(symbol)
+                .append("&side=").append(side.name())
+                .append("&type=MARKET");
+        if (isQuoteAmount) {
+            orderQuery.append("&quoteOrderQty=").append(amount.toPlainString());
+        } else {
+            BigDecimal spotFree = getSpotFreeBalance(apiKey, apiSecret, base);
+            BigDecimal rawQty = spotFree.min(amount);
+            BigDecimal qty = applyLotSize(symbol, rawQty);
+            if (qty.signum() <= 0) {
+                throw new ExchangeException("Sell quantity below minimum lot size for " + symbol);
+            }
+            BigDecimal minNotional = getMinNotional(symbol);
+            if (minNotional != null && minNotional.signum() > 0) {
+                BigDecimal price = getAvgPrice(symbol);
+                if (price != null && price.signum() > 0) {
+                    BigDecimal notional = qty.multiply(price);
+                    if (notional.compareTo(minNotional) < 0) {
+                        throw new ExchangeException("Order value " + notional + " below min notional " + minNotional + " for " + symbol);
+                    }
+                }
+            }
+            orderQuery.append("&quantity=").append(qty.toPlainString());
+        }
+        orderQuery.append("&newOrderRespType=RESULT")
+                .append("&timestamp=").append(ts)
+                .append("&recvWindow=5000");
+
+        String orderSignature = sign(orderQuery.toString(), apiSecret);
+        String orderUri = "/api/v3/order?" + orderQuery + "&signature=" + orderSignature;
+
+        JsonNode orderResp = webClient.post()
+                .uri(orderUri)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .header("X-MBX-APIKEY", apiKey)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .onErrorResume(org.springframework.web.reactive.function.client.WebClientResponseException.class, ex -> {
+                    String body = ex.getResponseBodyAsString();
+                    String msg = "Binance order failed: HTTP " + ex.getStatusCode().value();
+                    if (body != null && !body.isBlank()) {
+                        msg = msg + " body=" + body;
+                    }
+                    return reactor.core.publisher.Mono.error(new ExchangeException(msg, ex));
+                })
+                .block();
+
+        if (orderResp == null || orderResp.get("orderId") == null) {
+            throw new ExchangeException("Unexpected response from Binance order API");
+        }
+
+        long orderId = orderResp.get("orderId").asLong();
+        String status = orderResp.hasNonNull("status") ? orderResp.get("status").asText() : "NEW";
+        BigDecimal executedQty = toDecimal(orderResp.get("executedQty"));
+
+        // 3) Wait until filled.
+        if (!"FILLED".equalsIgnoreCase(status)) {
+            OrderStatusResult finalStatus = pollOrderStatus(apiKey, apiSecret, symbol, orderId);
+            status = finalStatus.status;
+            executedQty = finalStatus.executedQty;
+        }
+
+        if (!"FILLED".equalsIgnoreCase(status)) {
+            return new OrderResult(String.valueOf(orderId), status, "Order not filled");
+        }
+
+        if (side == OrderSide.BUY) {
+            if (executedQty.signum() <= 0) {
+                throw new ExchangeException("Order filled but executed quantity is zero");
+            }
+            // 4) Move bought base asset from Spot to Funding (use actual spot free balance).
+            BigDecimal spotFree = getSpotFreeBalance(apiKey, apiSecret, base);
+            if (spotFree.signum() > 0) {
+                transferSpotToFunding(apiKey, apiSecret, base, spotFree);
+            }
+            return new OrderResult(String.valueOf(orderId), status, "filledQty=" + executedQty);
+        }
+
+        // 4) Move quote asset from Spot to Funding (use actual spot free balance).
+        BigDecimal spotFreeQuote = getSpotFreeBalance(apiKey, apiSecret, quote);
+        if (spotFreeQuote.signum() > 0) {
+            transferSpotToFunding(apiKey, apiSecret, quote, spotFreeQuote);
+        }
+        return new OrderResult(String.valueOf(orderId), status, "filled");
+    }
+
+    private enum OrderSide {
+        BUY,
+        SELL
+    }
+
+    private BigDecimal applyLotSize(String symbol, BigDecimal quantity) {
+        LotSize lot = getLotSize(symbol);
+        if (lot == null) {
+            return quantity;
+        }
+        BigDecimal minQty = lot.minQty;
+        BigDecimal maxQty = lot.maxQty;
+        BigDecimal step = lot.stepSize;
+
+        if (maxQty != null && maxQty.signum() > 0 && quantity.compareTo(maxQty) > 0) {
+            quantity = maxQty;
+        }
+        if (minQty != null && minQty.signum() > 0 && quantity.compareTo(minQty) < 0) {
+            return BigDecimal.ZERO;
+        }
+        if (step == null || step.signum() <= 0) {
+            return quantity;
+        }
+        BigDecimal steps = quantity.divide(step, 0, java.math.RoundingMode.DOWN);
+        BigDecimal adjusted = step.multiply(steps);
+        if (minQty != null && minQty.signum() > 0 && adjusted.compareTo(minQty) < 0) {
+            return BigDecimal.ZERO;
+        }
+        return adjusted.stripTrailingZeros();
+    }
+
+    private LotSize getLotSize(String symbol) {
+        JsonNode info = webClient.get()
+                .uri("/api/v3/exchangeInfo?symbol=" + symbol)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .onErrorResume(e -> reactor.core.publisher.Mono.empty())
+                .block();
+        if (info == null || !info.has("symbols") || !info.get("symbols").isArray()) {
+            return null;
+        }
+        JsonNode first = info.get("symbols").size() > 0 ? info.get("symbols").get(0) : null;
+        if (first == null || !first.has("filters") || !first.get("filters").isArray()) {
+            return null;
+        }
+        for (JsonNode filter : first.get("filters")) {
+            String type = filter.hasNonNull("filterType") ? filter.get("filterType").asText() : null;
+            if ("LOT_SIZE".equalsIgnoreCase(type)) {
+                BigDecimal minQty = toDecimal(filter.get("minQty"));
+                BigDecimal maxQty = toDecimal(filter.get("maxQty"));
+                BigDecimal stepSize = toDecimal(filter.get("stepSize"));
+                return new LotSize(minQty, maxQty, stepSize);
+            }
+        }
+        return null;
+    }
+
+    private BigDecimal getMinNotional(String symbol) {
+        JsonNode info = webClient.get()
+                .uri("/api/v3/exchangeInfo?symbol=" + symbol)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .onErrorResume(e -> reactor.core.publisher.Mono.empty())
+                .block();
+        if (info == null || !info.has("symbols") || !info.get("symbols").isArray()) {
+            return null;
+        }
+        JsonNode first = info.get("symbols").size() > 0 ? info.get("symbols").get(0) : null;
+        if (first == null || !first.has("filters") || !first.get("filters").isArray()) {
+            return null;
+        }
+        for (JsonNode filter : first.get("filters")) {
+            String type = filter.hasNonNull("filterType") ? filter.get("filterType").asText() : null;
+            if ("NOTIONAL".equalsIgnoreCase(type)) {
+                return toDecimal(filter.get("minNotional"));
+            }
+            if ("MIN_NOTIONAL".equalsIgnoreCase(type)) {
+                return toDecimal(filter.get("minNotional"));
+            }
+        }
+        return null;
+    }
+
+    private BigDecimal getAvgPrice(String symbol) {
+        JsonNode resp = webClient.get()
+                .uri("/api/v3/avgPrice?symbol=" + symbol)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .onErrorResume(e -> reactor.core.publisher.Mono.empty())
+                .block();
+        if (resp == null) {
+            return null;
+        }
+        return toDecimal(resp.get("price"));
+    }
+
+    private record LotSize(BigDecimal minQty, BigDecimal maxQty, BigDecimal stepSize) {
     }
 
     private BigDecimal getSpotFreeBalance(String apiKey, String apiSecret, String asset) {
