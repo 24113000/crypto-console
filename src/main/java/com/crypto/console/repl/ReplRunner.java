@@ -14,6 +14,7 @@ import java.io.InputStreamReader;
 @Slf4j
 public class ReplRunner {
 
+    public static final String INPUT_LINE = "#####> ";
     private final CommandParser parser;
     private final CommandExecutor executor;
 
@@ -26,7 +27,7 @@ public class ReplRunner {
         ConsoleOutput.printlnGreen("Crypto Console REPL. Type 'help' for commands, 'exit' to quit.");
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
             while (true) {
-                ConsoleOutput.printGreen("> ");
+                ConsoleOutput.printBlue(INPUT_LINE);
                 String line = reader.readLine();
                 if (line == null) {
                     break;
@@ -47,4 +48,3 @@ public class ReplRunner {
         }
     }
 }
-
