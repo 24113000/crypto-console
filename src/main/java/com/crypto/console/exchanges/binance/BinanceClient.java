@@ -91,8 +91,11 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         // 1) Move quote asset from Funding to Spot.
         transferFundingToSpot(apiKey, apiSecret, quote, quoteAmount);
 
-        // 2) Place market buy using quoteOrderQty.
-        String symbol = (base + quote).toUpperCase();
+        // 2) Resolve symbol and place market buy using quoteOrderQty.
+        String symbol = resolveSymbol(base, quote);
+        if (symbol == null) {
+            throw new ExchangeException("Invalid symbol: " + (base + quote).toUpperCase() + ". Check base/quote assets.");
+        }
         long ts = System.currentTimeMillis();
         String orderQuery = "symbol=" + symbol
                 + "&side=BUY"
@@ -110,6 +113,14 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
                 .header("X-MBX-APIKEY", apiKey)
                 .retrieve()
                 .bodyToMono(JsonNode.class)
+                .onErrorResume(org.springframework.web.reactive.function.client.WebClientResponseException.class, ex -> {
+                    String body = ex.getResponseBodyAsString();
+                    String msg = "Binance order failed: HTTP " + ex.getStatusCode().value();
+                    if (body != null && !body.isBlank()) {
+                        msg = msg + " body=" + body;
+                    }
+                    return reactor.core.publisher.Mono.error(new ExchangeException(msg, ex));
+                })
                 .block();
 
         if (orderResp == null || orderResp.get("orderId") == null) {
@@ -135,8 +146,11 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
             throw new ExchangeException("Order filled but executed quantity is zero");
         }
 
-        // 4) Move bought base asset from Spot to Funding.
-        transferSpotToFunding(apiKey, apiSecret, base, executedQty);
+        // 4) Move bought base asset from Spot to Funding (use actual spot free balance).
+        BigDecimal spotFree = getSpotFreeBalance(apiKey, apiSecret, base);
+        if (spotFree.signum() > 0) {
+            transferSpotToFunding(apiKey, apiSecret, base, spotFree);
+        }
 
         return new OrderResult(String.valueOf(orderId), status, "filledQty=" + executedQty);
     }
@@ -270,6 +284,14 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
                 .header("X-MBX-APIKEY", apiKey)
                 .retrieve()
                 .bodyToMono(JsonNode.class)
+                .onErrorResume(org.springframework.web.reactive.function.client.WebClientResponseException.class, ex -> {
+                    String body = ex.getResponseBodyAsString();
+                    String msg = "Binance transfer failed: HTTP " + ex.getStatusCode().value();
+                    if (body != null && !body.isBlank()) {
+                        msg = msg + " body=" + body;
+                    }
+                    return reactor.core.publisher.Mono.error(new ExchangeException(msg, ex));
+                })
                 .block();
         if (resp == null || resp.get("tranId") == null) {
             throw new ExchangeException("Unexpected response from Binance transfer API (" + type + ")");
@@ -319,6 +341,68 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
     private record OrderStatusResult(String status, BigDecimal executedQty) {
     }
 
+    private BigDecimal getSpotFreeBalance(String apiKey, String apiSecret, String asset) {
+        long ts = System.currentTimeMillis();
+        String query = "timestamp=" + ts + "&recvWindow=5000";
+        String signature = sign(query, apiSecret);
+        String uri = "/api/v3/account?" + query + "&signature=" + signature;
+        JsonNode response = webClient.get()
+                .uri(uri)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .header("X-MBX-APIKEY", apiKey)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
+        if (response == null || response.get("balances") == null || !response.get("balances").isArray()) {
+            throw new ExchangeException("Unexpected response from Binance spot account API");
+        }
+        for (JsonNode balance : response.get("balances")) {
+            String balanceAsset = balance.hasNonNull("asset") ? balance.get("asset").asText() : null;
+            if (balanceAsset != null && balanceAsset.equalsIgnoreCase(asset)) {
+                return toDecimal(balance.get("free"));
+            }
+        }
+        return BigDecimal.ZERO;
+    }
+
+    private String resolveSymbol(String base, String quote) {
+        String candidate = (base + quote).toUpperCase();
+        JsonNode direct = webClient.get()
+                .uri("/api/v3/exchangeInfo?symbol=" + candidate)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .onErrorResume(e -> reactor.core.publisher.Mono.empty())
+                .block();
+        if (direct != null && direct.has("symbols") && direct.get("symbols").isArray()) {
+            JsonNode first = direct.get("symbols").size() > 0 ? direct.get("symbols").get(0) : null;
+            if (first != null && first.hasNonNull("symbol")) {
+                return first.get("symbol").asText();
+            }
+        }
+
+        JsonNode full = webClient.get()
+                .uri("/api/v3/exchangeInfo")
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .onErrorResume(e -> reactor.core.publisher.Mono.empty())
+                .block();
+        if (full == null || !full.has("symbols") || !full.get("symbols").isArray()) {
+            return null;
+        }
+        for (JsonNode symbolNode : full.get("symbols")) {
+            String baseAsset = symbolNode.hasNonNull("baseAsset") ? symbolNode.get("baseAsset").asText() : null;
+            String quoteAsset = symbolNode.hasNonNull("quoteAsset") ? symbolNode.get("quoteAsset").asText() : null;
+            if (baseAsset != null && quoteAsset != null
+                    && baseAsset.equalsIgnoreCase(base)
+                    && quoteAsset.equalsIgnoreCase(quote)) {
+                return symbolNode.get("symbol").asText();
+            }
+        }
+        return null;
+    }
+
     private String sign(String data, String secret) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
@@ -345,4 +429,3 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         return new BigDecimal(text);
     }
 }
-
