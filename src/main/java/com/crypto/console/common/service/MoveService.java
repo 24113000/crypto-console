@@ -1,6 +1,7 @@
 package com.crypto.console.common.service;
 
-import com.crypto.console.common.properties.AppProperties;
+import com.crypto.console.common.exchange.DepositAddressProvider;
+import com.crypto.console.common.exchange.DepositNetworkNormalizer;
 import com.crypto.console.common.exchange.ExchangeClient;
 import com.crypto.console.common.exchange.ExchangeName;
 import com.crypto.console.common.exchange.impl.ExchangeRegistry;
@@ -8,6 +9,8 @@ import com.crypto.console.common.model.Balance;
 import com.crypto.console.common.model.ExchangeException;
 import com.crypto.console.common.model.WithdrawResult;
 import com.crypto.console.common.model.WithdrawalFees;
+import com.crypto.console.common.properties.AppProperties;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
 import java.math.BigDecimal;
@@ -19,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+@Slf4j
 public class MoveService {
     private final ExchangeRegistry registry;
     private final AppProperties config;
@@ -42,12 +46,29 @@ public class MoveService {
         BigDecimal baselineFree = baseline == null || baseline.free == null ? BigDecimal.ZERO : baseline.free;
 
         Set<String> networks = networkResolver.resolveDepositNetworks(recipient, to, asset);
-        WithdrawalFees senderFees = feeResolver.resolveWithdrawalFees(sender, from, asset);
+        WithdrawalFees senderFees;
+        try {
+            senderFees = feeResolver.resolveWithdrawalFees(sender, from, asset);
+        } catch (ExchangeException e) {
+            // If fees are unavailable, proceed with zero fees for all networks.
+            Map<String, BigDecimal> zeroFees = new java.util.HashMap<>();
+            for (String network : networks) {
+                zeroFees.put(network, BigDecimal.ZERO);
+            }
+            senderFees = new WithdrawalFees(asset, zeroFees);
+        }
 
         String selectedNetwork = selectNetwork(to, asset, networks, senderFees);
+        String normalizedNetwork = selectedNetwork;
+        if (recipient instanceof DepositNetworkNormalizer normalizer) {
+            normalizedNetwork = normalizer.normalizeDepositNetwork(selectedNetwork);
+        }
         AppProperties.AddressConfig addressConfig = getAddressConfig(to, asset, selectedNetwork);
         String address = addressConfig == null ? null : addressConfig.getAddress();
         String memo = addressConfig == null ? null : addressConfig.getMemo();
+        if (StringUtils.isBlank(address) && recipient instanceof DepositAddressProvider provider) {
+            address = provider.getDepositAddress(asset, normalizedNetwork);
+        }
         if (StringUtils.isBlank(address)) {
             if (isStubExchange(to)) {
                 address = "STUB-ADDRESS";
@@ -59,6 +80,7 @@ public class MoveService {
             throw new ExchangeException("Memo/tag required for " + asset + " on " + selectedNetwork + " but missing in config");
         }
 
+        LOG.info("Withdrawing {} {} via {} to {} (memo={})", amount, asset, selectedNetwork, address, memo);
         WithdrawResult result = sender.withdraw(asset, amount, selectedNetwork, address, memo);
         String withdrawalId = result == null ? "" : result.withdrawalId;
 
@@ -142,4 +164,5 @@ public class MoveService {
         ExchangeName name = ExchangeName.from(exchange);
         return name == ExchangeName.EXSTUB1 || name == ExchangeName.EXSTUB2;
     }
+
 }

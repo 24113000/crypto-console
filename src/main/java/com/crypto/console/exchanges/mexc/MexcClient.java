@@ -1,10 +1,13 @@
 package com.crypto.console.exchanges.mexc;
 
 import com.crypto.console.common.exchange.DepositAddressProvider;
+import com.crypto.console.common.exchange.DepositNetworkNormalizer;
 import com.crypto.console.common.exchange.DepositNetworkProvider;
 import com.crypto.console.common.exchange.impl.BaseExchangeClient;
 import com.crypto.console.common.model.*;
 import com.crypto.console.common.model.ExchangeException;
+import com.crypto.console.common.util.LogSanitizer;
+import lombok.extern.slf4j.Slf4j;
 import com.crypto.console.common.properties.AppProperties;
 import com.crypto.console.common.properties.SecretsProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,13 +17,17 @@ import org.springframework.http.HttpHeaders;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.net.URLEncoder;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-public class MexcClient extends BaseExchangeClient implements DepositNetworkProvider, DepositAddressProvider {
+@Slf4j
+public class MexcClient extends BaseExchangeClient implements DepositNetworkProvider, DepositAddressProvider, DepositNetworkNormalizer {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     public MexcClient(AppProperties.ExchangeConfig cfg, SecretsProperties.ExchangeSecrets secrets) {
@@ -38,11 +45,14 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
             throw new ExchangeException("Missing API credentials for mexc");
         }
 
-        long timestamp = System.currentTimeMillis();
-        String query = "timestamp=" + timestamp + "&recvWindow=5000";
-        String signature = sign(query, apiSecret);
-        String uri = "/api/v3/account?" + query + "&signature=" + signature;
+        long timestamp = getServerTime();
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("timestamp", String.valueOf(timestamp));
+        params.put("recvWindow", "5000");
+        String query = signQuery(params, apiSecret);
+        String uri = "/api/v3/account?" + query;
 
+        LOG.info("mexc GET {}", LogSanitizer.sanitize(uri));
         JsonNode response = getJson(uri, apiKey);
 
         if (response == null || response.get("balances") == null || !response.get("balances").isArray()) {
@@ -107,10 +117,14 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
         Set<String> networks = new HashSet<>();
 
         // Prefer deposit address endpoint for a single coin to avoid large config responses.
-        long timestamp = System.currentTimeMillis();
-        String query = "coin=" + asset.toUpperCase() + "&timestamp=" + timestamp + "&recvWindow=5000";
-        String signature = sign(query, apiSecret);
-        String uri = "/api/v3/capital/deposit/address?" + query + "&signature=" + signature;
+        long timestamp = getServerTime();
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("coin", asset.toUpperCase());
+        params.put("timestamp", String.valueOf(timestamp));
+        params.put("recvWindow", "5000");
+        String query = signQuery(params, apiSecret);
+        String uri = "/api/v3/capital/deposit/address?" + query;
+        LOG.info("mexc GET {}", LogSanitizer.sanitize(uri));
         JsonNode addressResponse = getJson(uri, apiKey);
         if (addressResponse != null && addressResponse.isArray()) {
             for (JsonNode item : addressResponse) {
@@ -126,10 +140,13 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
         }
 
         // Fallback to config/getall if deposit address list is empty.
-        long ts2 = System.currentTimeMillis();
-        String query2 = "timestamp=" + ts2 + "&recvWindow=5000";
-        String signature2 = sign(query2, apiSecret);
-        String uri2 = "/api/v3/capital/config/getall?" + query2 + "&signature=" + signature2;
+        long ts2 = getServerTime();
+        Map<String, String> params2 = new LinkedHashMap<>();
+        params2.put("timestamp", String.valueOf(ts2));
+        params2.put("recvWindow", "5000");
+        String query2 = signQuery(params2, apiSecret);
+        String uri2 = "/api/v3/capital/config/getall?" + query2;
+        LOG.info("mexc GET {}", LogSanitizer.sanitize(uri2));
         JsonNode response = getJson(uri2, apiKey);
         if (response == null || !response.isArray()) {
             throw new ExchangeException("Unexpected response from MEXC config API");
@@ -165,7 +182,7 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
             throw new ExchangeException("Missing API credentials for mexc");
         }
 
-        String normalizedNetwork = normalizeNetwork(network);
+        String normalizedNetwork = normalizeDepositNetwork(network);
         for (String candidate : networkCandidates(network, normalizedNetwork)) {
             String address = getDepositAddressGet(asset, candidate, apiKey, apiSecret, true);
             if (StringUtils.isNotBlank(address)) {
@@ -195,6 +212,54 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
         }
     }
 
+    private String signQuery(Map<String, String> params, String secret) {
+        Map<String, String> sorted = new java.util.TreeMap<>(params);
+        String qs = buildQueryString(sorted);
+        String signature = sign(qs, secret);
+        return qs + "&signature=" + signature;
+    }
+
+    private String buildQueryString(Map<String, String> params) {
+        StringBuilder qs = new StringBuilder();
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            if (entry.getValue() == null) {
+                continue;
+            }
+            if (!qs.isEmpty()) {
+                qs.append("&");
+            }
+            qs.append(encodeQuery(entry.getKey()))
+              .append("=")
+              .append(encodeQuery(entry.getValue()));
+        }
+        return qs.toString();
+    }
+
+    private String encodeQuery(String value) {
+        try {
+            String encoded = URLEncoder.encode(value, StandardCharsets.UTF_8.toString());
+            return encoded.replace("+", "%20");
+        } catch (Exception e) {
+            throw new ExchangeException("Failed to encode MEXC query parameter", e);
+        }
+    }
+    
+    private long getServerTime() {
+        try {
+            JsonNode resp = webClient.get()
+                    .uri("/api/v3/time")
+                    .header(HttpHeaders.USER_AGENT, "crypto-console")
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+            if (resp != null && resp.hasNonNull("serverTime")) {
+                return resp.get("serverTime").asLong();
+            }
+        } catch (Exception ignored) {
+        }
+        return System.currentTimeMillis();
+    }
+
     private BigDecimal toDecimal(JsonNode node) {
         if (node == null || node.isNull()) {
             return BigDecimal.ZERO;
@@ -207,12 +272,21 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
     }
 
     private JsonNode getJson(String uri, String apiKey) {
+        LOG.info("mexc GET {}", LogSanitizer.sanitize(uri));
         String body = webClient.get()
                 .uri(uri)
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
                 .header("X-MEXC-APIKEY", apiKey)
                 .retrieve()
                 .bodyToMono(String.class)
+                .onErrorResume(org.springframework.web.reactive.function.client.WebClientResponseException.class, ex -> {
+                    String msg = "MEXC request failed: HTTP " + ex.getStatusCode().value();
+                    String respBody = ex.getResponseBodyAsString();
+                    if (respBody != null && !respBody.isBlank()) {
+                        msg = msg + " body=" + respBody;
+                    }
+                    return reactor.core.publisher.Mono.error(new ExchangeException(msg, ex));
+                })
                 .block();
         if (StringUtils.isBlank(body)) {
             throw new ExchangeException("Empty response from MEXC");
@@ -225,17 +299,18 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
     }
 
     private String getDepositAddressGet(String asset, String network, String apiKey, String apiSecret, boolean includeNetworkParam) {
-        long timestamp = System.currentTimeMillis();
-        StringBuilder query = new StringBuilder();
-        query.append("coin=").append(asset.toUpperCase());
+        long timestamp = getServerTime();
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("coin", asset.toUpperCase());
         if (includeNetworkParam && StringUtils.isNotBlank(network)) {
-            query.append("&network=").append(network);
+            params.put("network", network);
         }
-        query.append("&timestamp=").append(timestamp);
-        query.append("&recvWindow=5000");
+        params.put("timestamp", String.valueOf(timestamp));
+        params.put("recvWindow", "5000");
 
-        String signature = sign(query.toString(), apiSecret);
-        String uri = "/api/v3/capital/deposit/address?" + query + "&signature=" + signature;
+        String query = signQuery(params, apiSecret);
+        String uri = "/api/v3/capital/deposit/address?" + query;
+        LOG.info("mexc GET {}", LogSanitizer.sanitize(uri));
         JsonNode response = getJson(uri, apiKey);
         if (response == null) {
             return null;
@@ -262,8 +337,8 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
         if (StringUtils.isBlank(a) || StringUtils.isBlank(b)) {
             return false;
         }
-        String na = normalizeNetwork(a);
-        String nb = normalizeNetwork(b);
+        String na = normalizeDepositNetwork(a);
+        String nb = normalizeDepositNetwork(b);
         if (na.equalsIgnoreCase(nb)) {
             return true;
         }
@@ -276,15 +351,27 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
         return na.contains(nb) || nb.contains(na);
     }
 
-    private String normalizeNetwork(String network) {
+    @Override
+    public String normalizeDepositNetwork(String network) {
         if (StringUtils.isBlank(network)) {
             return null;
         }
         String cleaned = network.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
-        if ("TRX".equalsIgnoreCase(cleaned)) {
-            return "TRC20";
-        }
-        return cleaned;
+        return switch (cleaned) {
+            case "ARBITRUMONE", "ARB" -> "ARBITRUM";
+            case "AVALANCHECCHAIN", "AVAXCCHAIN", "AVAXC" -> "AVAXC";
+            case "BNBSMARTCHAIN", "BSC", "BEP20" -> "BSC";
+            case "ETHEREUM", "ERC20", "ETH" -> "ERC20";
+            case "POLYGON", "MATIC" -> "MATIC";
+            case "SOLANA", "SOL" -> "SOL";
+            case "TRON", "TRC20", "TRX" -> "TRC20";
+            case "OPTIMISM", "OP" -> "OPTIMISM";
+            case "KAIA" -> "KAIA";
+            case "CELO" -> "CELO";
+            case "HECO" -> "HECO";
+            case "PLASMA" -> "PLASMA";
+            default -> cleaned;
+        };
     }
 
     private java.util.List<String> networkCandidates(String raw, String normalized) {

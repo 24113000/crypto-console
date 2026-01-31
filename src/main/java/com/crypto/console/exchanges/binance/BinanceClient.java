@@ -3,11 +3,14 @@ package com.crypto.console.exchanges.binance;
 import com.crypto.console.common.properties.AppProperties;
 import com.crypto.console.common.properties.SecretsProperties;
 import com.crypto.console.common.exchange.DepositAddressProvider;
+import com.crypto.console.common.exchange.DepositNetworkNormalizer;
 import com.crypto.console.common.exchange.DepositNetworkProvider;
 import com.crypto.console.common.exchange.impl.BaseExchangeClient;
 import com.crypto.console.common.model.*;
 import com.crypto.console.common.model.ExchangeException;
+import com.crypto.console.common.util.LogSanitizer;
 import com.fasterxml.jackson.databind.JsonNode;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.HttpHeaders;
 
@@ -17,7 +20,8 @@ import java.util.Iterator;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-public class BinanceClient extends BaseExchangeClient implements DepositNetworkProvider, DepositAddressProvider {
+@Slf4j
+public class BinanceClient extends BaseExchangeClient implements DepositNetworkProvider, DepositAddressProvider, DepositNetworkNormalizer {
     public BinanceClient(AppProperties.ExchangeConfig cfg, SecretsProperties.ExchangeSecrets secrets) {
         super("binance", cfg, secrets);
     }
@@ -38,6 +42,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         String signature = sign(query, apiSecret);
         String uri = "/sapi/v1/asset/get-funding-asset?" + query + "&signature=" + signature;
 
+        LOG.info("binance POST {}", LogSanitizer.sanitize(uri));
         JsonNode response = webClient.post()
                 .uri(uri)
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
@@ -110,7 +115,64 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
 
     @Override
     public WithdrawResult withdraw(String asset, BigDecimal amount, String network, String address, String memoOrNull) {
-        throw notImplemented("POST /sapi/v1/capital/withdraw/apply (signed)");
+        if (StringUtils.isBlank(asset)) {
+            throw new ExchangeException("Asset is required");
+        }
+        if (amount == null || amount.signum() <= 0) {
+            throw new ExchangeException("Amount must be positive");
+        }
+        if (StringUtils.isBlank(address)) {
+            throw new ExchangeException("Address is required");
+        }
+        String apiKey = secrets == null ? null : secrets.getApiKey();
+        String apiSecret = secrets == null ? null : secrets.getApiSecret();
+        if (StringUtils.isBlank(apiKey) || StringUtils.isBlank(apiSecret)) {
+            throw new ExchangeException("Missing API credentials for binance");
+        }
+
+        long ts = System.currentTimeMillis();
+        StringBuilder query = new StringBuilder();
+        query.append("coin=").append(asset.toUpperCase());
+        query.append("&address=").append(address);
+        query.append("&amount=").append(amount.toPlainString());
+        if (StringUtils.isNotBlank(network)) {
+            query.append("&network=").append(normalizeDepositNetwork(network));
+        }
+        query.append("&walletType=1");
+        if (StringUtils.isNotBlank(memoOrNull)) {
+            query.append("&addressTag=").append(memoOrNull);
+        }
+        query.append("&timestamp=").append(ts);
+        query.append("&recvWindow=5000");
+
+        String signature = sign(query.toString(), apiSecret);
+        String uri = "/sapi/v1/capital/withdraw/apply?" + query + "&signature=" + signature;
+
+        LOG.info("binance POST {}", LogSanitizer.sanitize(uri));
+        JsonNode response = webClient.post()
+                .uri(uri)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .header("X-MBX-APIKEY", apiKey)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .onErrorResume(org.springframework.web.reactive.function.client.WebClientResponseException.class, ex -> {
+                    String body = ex.getResponseBodyAsString();
+                    String msg = "Binance withdraw failed: HTTP " + ex.getStatusCode().value();
+                    if (body != null && !body.isBlank()) {
+                        msg = msg + " body=" + body;
+                    }
+                    return reactor.core.publisher.Mono.error(new ExchangeException(msg, ex));
+                })
+                .block();
+
+        if (response == null) {
+            throw new ExchangeException("Unexpected response from Binance withdraw API");
+        }
+        String id = response.hasNonNull("id") ? response.get("id").asText() : null;
+        if (StringUtils.isBlank(id)) {
+            throw new ExchangeException("Missing withdrawal id from Binance withdraw API");
+        }
+        return new WithdrawResult(id, "SUBMITTED", "withdraw submitted");
     }
 
     @Override
@@ -134,6 +196,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         String signature = sign(query, apiSecret);
         String uri = "/sapi/v1/capital/config/getall?" + query + "&signature=" + signature;
 
+        LOG.info("binance GET {}", LogSanitizer.sanitize(uri));
         JsonNode response = webClient.get()
                 .uri(uri)
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
@@ -178,10 +241,11 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         }
 
         long timestamp = System.currentTimeMillis();
+        String normalizedNetwork = normalizeDepositNetwork(network);
         StringBuilder query = new StringBuilder();
         query.append("coin=").append(asset.toUpperCase());
-        if (StringUtils.isNotBlank(network)) {
-            query.append("&network=").append(network.toUpperCase());
+        if (StringUtils.isNotBlank(normalizedNetwork)) {
+            query.append("&network=").append(normalizedNetwork);
         }
         query.append("&timestamp=").append(timestamp);
         query.append("&recvWindow=5000");
@@ -189,6 +253,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         String signature = sign(query.toString(), apiSecret);
         String uri = "/sapi/v1/capital/deposit/address?" + query + "&signature=" + signature;
 
+        LOG.info("binance GET {}", LogSanitizer.sanitize(uri));
         JsonNode response = webClient.get()
                 .uri(uri)
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
@@ -226,6 +291,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
                 + "&recvWindow=5000";
         String signature = sign(query, apiSecret);
         String uri = "/sapi/v1/asset/transfer?" + query + "&signature=" + signature;
+        LOG.info("binance POST {}", LogSanitizer.sanitize(uri));
         JsonNode resp = webClient.post()
                 .uri(uri)
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
@@ -271,6 +337,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         String query = "symbol=" + symbol + "&orderId=" + orderId + "&timestamp=" + ts + "&recvWindow=5000";
         String signature = sign(query, apiSecret);
         String uri = "/api/v3/order?" + query + "&signature=" + signature;
+        LOG.info("binance GET {}", LogSanitizer.sanitize(uri));
         JsonNode resp = webClient.get()
                 .uri(uri)
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
@@ -341,6 +408,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         String orderSignature = sign(orderQuery.toString(), apiSecret);
         String orderUri = "/api/v3/order?" + orderQuery + "&signature=" + orderSignature;
 
+        LOG.info("binance POST {}", LogSanitizer.sanitize(orderUri));
         JsonNode orderResp = webClient.post()
                 .uri(orderUri)
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
@@ -428,6 +496,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
     }
 
     private LotSize getLotSize(String symbol) {
+        LOG.info("binance GET {}", LogSanitizer.sanitize("/api/v3/exchangeInfo?symbol=" + symbol));
         JsonNode info = webClient.get()
                 .uri("/api/v3/exchangeInfo?symbol=" + symbol)
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
@@ -455,6 +524,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
     }
 
     private BigDecimal getMinNotional(String symbol) {
+        LOG.info("binance GET {}", LogSanitizer.sanitize("/api/v3/exchangeInfo?symbol=" + symbol));
         JsonNode info = webClient.get()
                 .uri("/api/v3/exchangeInfo?symbol=" + symbol)
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
@@ -482,6 +552,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
     }
 
     private BigDecimal getAvgPrice(String symbol) {
+        LOG.info("binance GET {}", LogSanitizer.sanitize("/api/v3/avgPrice?symbol=" + symbol));
         JsonNode resp = webClient.get()
                 .uri("/api/v3/avgPrice?symbol=" + symbol)
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
@@ -503,6 +574,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         String query = "timestamp=" + ts + "&recvWindow=5000";
         String signature = sign(query, apiSecret);
         String uri = "/api/v3/account?" + query + "&signature=" + signature;
+        LOG.info("binance GET {}", LogSanitizer.sanitize(uri));
         JsonNode response = webClient.get()
                 .uri(uri)
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
@@ -524,6 +596,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
 
     private String resolveSymbol(String base, String quote) {
         String candidate = (base + quote).toUpperCase();
+        LOG.info("binance GET {}", LogSanitizer.sanitize("/api/v3/exchangeInfo?symbol=" + candidate));
         JsonNode direct = webClient.get()
                 .uri("/api/v3/exchangeInfo?symbol=" + candidate)
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
@@ -538,6 +611,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
             }
         }
 
+        LOG.info("binance GET /api/v3/exchangeInfo");
         JsonNode full = webClient.get()
                 .uri("/api/v3/exchangeInfo")
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
@@ -584,5 +658,28 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
             return BigDecimal.ZERO;
         }
         return new BigDecimal(text);
+    }
+
+    @Override
+    public String normalizeDepositNetwork(String network) {
+        if (StringUtils.isBlank(network)) {
+            return null;
+        }
+        String cleaned = network.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
+        return switch (cleaned) {
+            case "ARBITRUMONE", "ARB" -> "ARBITRUM";
+            case "AVALANCHECCHAIN", "AVAXCCHAIN", "AVAXC" -> "AVAXC";
+            case "BNBSMARTCHAIN", "BSC", "BEP20" -> "BSC";
+            case "ETHEREUM", "ERC20", "ETH" -> "ETH";
+            case "POLYGON", "MATIC" -> "MATIC";
+            case "SOLANA", "SOL" -> "SOL";
+            case "TRON", "TRC20", "TRX" -> "TRX";
+            case "OPTIMISM", "OP" -> "OPTIMISM";
+            case "KAIA" -> "KAIA";
+            case "CELO" -> "CELO";
+            case "HECO" -> "HECO";
+            case "PLASMA" -> "PLASMA";
+            default -> cleaned;
+        };
     }
 }
