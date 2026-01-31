@@ -7,6 +7,7 @@ import com.crypto.console.common.model.ExchangeCapabilities;
 import com.crypto.console.common.model.ExchangeException;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 
 public abstract class BaseExchangeClient implements ExchangeClient {
     protected final String name;
@@ -21,7 +22,13 @@ public abstract class BaseExchangeClient implements ExchangeClient {
         if (StringUtils.isBlank(this.baseUrl)) {
             throw new IllegalStateException("Missing baseUrl for exchange: " + name);
         }
-        this.webClient = WebClient.builder().baseUrl(this.baseUrl).build();
+        ExchangeStrategies strategies = ExchangeStrategies.builder()
+                .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
+                .build();
+        this.webClient = WebClient.builder()
+                .baseUrl(this.baseUrl)
+                .exchangeStrategies(strategies)
+                .build();
     }
 
     @Override
@@ -38,6 +45,5 @@ public abstract class BaseExchangeClient implements ExchangeClient {
         return new ExchangeCapabilities(false, false, false, false, false, false, false);
     }
 }
-
 
 

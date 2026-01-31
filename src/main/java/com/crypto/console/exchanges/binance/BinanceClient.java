@@ -2,6 +2,8 @@ package com.crypto.console.exchanges.binance;
 
 import com.crypto.console.common.properties.AppProperties;
 import com.crypto.console.common.properties.SecretsProperties;
+import com.crypto.console.common.exchange.DepositAddressProvider;
+import com.crypto.console.common.exchange.DepositNetworkProvider;
 import com.crypto.console.common.exchange.impl.BaseExchangeClient;
 import com.crypto.console.common.model.*;
 import com.crypto.console.common.model.ExchangeException;
@@ -15,7 +17,7 @@ import java.util.Iterator;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-public class BinanceClient extends BaseExchangeClient {
+public class BinanceClient extends BaseExchangeClient implements DepositNetworkProvider, DepositAddressProvider {
     public BinanceClient(AppProperties.ExchangeConfig cfg, SecretsProperties.ExchangeSecrets secrets) {
         super("binance", cfg, secrets);
     }
@@ -92,6 +94,97 @@ public class BinanceClient extends BaseExchangeClient {
         throw notImplemented("GET /api/v3/time (public)");
     }
 
+    @Override
+    public java.util.Set<String> getDepositNetworks(String asset) {
+        if (StringUtils.isBlank(asset)) {
+            throw new ExchangeException("Asset is required");
+        }
+        String apiKey = secrets == null ? null : secrets.getApiKey();
+        String apiSecret = secrets == null ? null : secrets.getApiSecret();
+        if (StringUtils.isBlank(apiKey) || StringUtils.isBlank(apiSecret)) {
+            throw new ExchangeException("Missing API credentials for binance");
+        }
+
+        long timestamp = System.currentTimeMillis();
+        String query = "timestamp=" + timestamp + "&recvWindow=5000";
+        String signature = sign(query, apiSecret);
+        String uri = "/sapi/v1/capital/config/getall?" + query + "&signature=" + signature;
+
+        JsonNode response = webClient.get()
+                .uri(uri)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .header("X-MBX-APIKEY", apiKey)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
+
+        if (response == null || !response.isArray()) {
+            throw new ExchangeException("Unexpected response from Binance config API");
+        }
+
+        java.util.Set<String> networks = new java.util.HashSet<>();
+        for (JsonNode coin : response) {
+            String coinName = coin.hasNonNull("coin") ? coin.get("coin").asText() : null;
+            if (coinName == null || !coinName.equalsIgnoreCase(asset)) {
+                continue;
+            }
+            JsonNode networkList = coin.get("networkList");
+            if (networkList != null && networkList.isArray()) {
+                for (JsonNode network : networkList) {
+                    String name = network.hasNonNull("network") ? network.get("network").asText() : null;
+                    if (StringUtils.isNotBlank(name)) {
+                        networks.add(name.trim().toUpperCase());
+                    }
+                }
+            }
+        }
+
+        return networks;
+    }
+
+    @Override
+    public String getDepositAddress(String asset, String network) {
+        if (StringUtils.isBlank(asset)) {
+            throw new ExchangeException("Asset is required");
+        }
+        String apiKey = secrets == null ? null : secrets.getApiKey();
+        String apiSecret = secrets == null ? null : secrets.getApiSecret();
+        if (StringUtils.isBlank(apiKey) || StringUtils.isBlank(apiSecret)) {
+            throw new ExchangeException("Missing API credentials for binance");
+        }
+
+        long timestamp = System.currentTimeMillis();
+        StringBuilder query = new StringBuilder();
+        query.append("coin=").append(asset.toUpperCase());
+        if (StringUtils.isNotBlank(network)) {
+            query.append("&network=").append(network.toUpperCase());
+        }
+        query.append("&timestamp=").append(timestamp);
+        query.append("&recvWindow=5000");
+
+        String signature = sign(query.toString(), apiSecret);
+        String uri = "/sapi/v1/capital/deposit/address?" + query + "&signature=" + signature;
+
+        JsonNode response = webClient.get()
+                .uri(uri)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .header("X-MBX-APIKEY", apiKey)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
+
+        if (response == null) {
+            throw new ExchangeException("Unexpected response from Binance deposit address API");
+        }
+        JsonNode addressNode = response.get("address");
+        return addressNode == null ? null : addressNode.asText();
+    }
+
+    @Override
+    public ExchangeCapabilities capabilities() {
+        return new ExchangeCapabilities(true, true, true, true, true, false, true);
+    }
+
     private String sign(String data, String secret) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
@@ -118,6 +211,5 @@ public class BinanceClient extends BaseExchangeClient {
         return new BigDecimal(text);
     }
 }
-
 
 

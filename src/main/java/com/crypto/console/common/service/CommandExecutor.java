@@ -9,7 +9,6 @@ import com.crypto.console.common.command.impl.InvalidCommand;
 import com.crypto.console.common.command.impl.MoveCommand;
 import com.crypto.console.common.command.impl.OrderBookCommand;
 import com.crypto.console.common.command.impl.SellCommand;
-import com.crypto.console.common.exchange.DepositAddressProvider;
 import com.crypto.console.common.exchange.ExchangeClient;
 import com.crypto.console.common.exchange.impl.ExchangeRegistry;
 import com.crypto.console.common.model.Balance;
@@ -146,18 +145,9 @@ public class CommandExecutor {
     private CommandResult handleDeposit(DepositCommand cmd) {
         requireSecrets(cmd.exchange);
         ExchangeClient client = registry.getClient(cmd.exchange);
-        String address = null;
-        if (client instanceof DepositAddressProvider provider) {
-            address = provider.getDepositAddress(cmd.asset, null);
-        }
-        if (address == null || address.isBlank()) {
-            address = "N/A";
-        }
-
         var networks = networkResolver.resolveDepositNetworks(client, cmd.exchange, cmd.asset);
         StringBuilder sb = new StringBuilder();
-        sb.append("address: ").append(address);
-        sb.append("\nsupported networks:");
+        sb.append("supported networks:");
         networks.stream().sorted().forEach(n -> sb.append("\n").append(n));
         String message = sb.toString();
         logSuccess(LogSanitizer.sanitize(message));
@@ -189,4 +179,3 @@ public class CommandExecutor {
         );
     }
 }
-
