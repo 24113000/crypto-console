@@ -59,15 +59,19 @@ public class MoveService {
         }
 
         String selectedNetwork = selectNetwork(to, asset, networks, senderFees);
-        String normalizedNetwork = selectedNetwork;
+        String recipientNetwork = selectedNetwork;
         if (recipient instanceof DepositNetworkNormalizer normalizer) {
-            normalizedNetwork = normalizer.normalizeDepositNetwork(selectedNetwork);
+            recipientNetwork = normalizer.normalizeDepositNetwork(selectedNetwork);
+        }
+        String senderNetwork = selectedNetwork;
+        if (sender instanceof DepositNetworkNormalizer normalizer) {
+            senderNetwork = normalizer.normalizeDepositNetwork(selectedNetwork);
         }
         AppProperties.AddressConfig addressConfig = getAddressConfig(to, asset, selectedNetwork);
         String address = addressConfig == null ? null : addressConfig.getAddress();
         String memo = addressConfig == null ? null : addressConfig.getMemo();
         if (StringUtils.isBlank(address) && recipient instanceof DepositAddressProvider provider) {
-            address = provider.getDepositAddress(asset, normalizedNetwork);
+            address = provider.getDepositAddress(asset, recipientNetwork);
         }
         if (StringUtils.isBlank(address)) {
             if (isStubExchange(to)) {
@@ -80,8 +84,8 @@ public class MoveService {
             throw new ExchangeException("Memo/tag required for " + asset + " on " + selectedNetwork + " but missing in config");
         }
 
-        LOG.info("Withdrawing {} {} via {} to {} (memo={})", amount, asset, selectedNetwork, address, memo);
-        WithdrawResult result = sender.withdraw(asset, amount, selectedNetwork, address, memo);
+        LOG.info("Withdrawing {} {} via {} (senderNetwork={}) to {} (memo={})", amount, asset, selectedNetwork, senderNetwork, address, memo);
+        WithdrawResult result = sender.withdraw(asset, amount, senderNetwork, address, memo);
         String withdrawalId = result == null ? "" : result.withdrawalId;
 
         boolean success = pollForDeposit(

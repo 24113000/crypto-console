@@ -38,12 +38,12 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         }
 
         long timestamp = System.currentTimeMillis();
-        String query = "timestamp=" + timestamp + "&recvWindow=5000&asset=" + asset.toUpperCase();
+        String query = "timestamp=" + timestamp + "&recvWindow=5000";
         String signature = sign(query, apiSecret);
-        String uri = "/sapi/v1/asset/get-funding-asset?" + query + "&signature=" + signature;
+        String uri = "/api/v3/account?" + query + "&signature=" + signature;
 
-        LOG.info("binance POST {}", LogSanitizer.sanitize(uri));
-        JsonNode response = webClient.post()
+        LOG.info("binance GET {}", LogSanitizer.sanitize(uri));
+        JsonNode response = webClient.get()
                 .uri(uri)
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
                 .header("X-MBX-APIKEY", apiKey)
@@ -51,11 +51,11 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
                 .bodyToMono(JsonNode.class)
                 .block();
 
-        if (response == null || !response.isArray()) {
-            throw new ExchangeException("Unexpected response from Binance funding API");
+        if (response == null || response.get("balances") == null || !response.get("balances").isArray()) {
+            throw new ExchangeException("Unexpected response from Binance spot account API");
         }
 
-        Iterator<JsonNode> it = response.elements();
+        Iterator<JsonNode> it = response.get("balances").elements();
         while (it.hasNext()) {
             JsonNode balance = it.next();
             String balanceAsset = balance.hasNonNull("asset") ? balance.get("asset").asText() : null;
@@ -672,8 +672,8 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
             case "BNBSMARTCHAIN", "BSC", "BEP20" -> "BSC";
             case "ETHEREUM", "ERC20", "ETH" -> "ETH";
             case "POLYGON", "MATIC" -> "MATIC";
-            case "SOLANA", "SOL" -> "SOL";
-            case "TRON", "TRC20", "TRX" -> "TRX";
+            case "SOLANA", "SOL", "SOLANASOL" -> "SOL";
+            case "TRON", "TRC20", "TRX", "TRONTRC20" -> "TRX";
             case "OPTIMISM", "OP" -> "OPTIMISM";
             case "KAIA" -> "KAIA";
             case "CELO" -> "CELO";

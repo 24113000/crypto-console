@@ -85,18 +85,199 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
 
     @Override
     public OrderResult marketBuy(String base, String quote, BigDecimal quoteAmount) {
-        throw notImplemented("POST /api/v3/order (signed)");
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        if (quoteAmount == null || quoteAmount.signum() <= 0) {
+            throw new ExchangeException("Quote amount must be positive");
+        }
+        String apiKey = secrets == null ? null : secrets.getApiKey();
+        String apiSecret = secrets == null ? null : secrets.getApiSecret();
+        if (StringUtils.isBlank(apiKey) || StringUtils.isBlank(apiSecret)) {
+            throw new ExchangeException("Missing API credentials for mexc");
+        }
+
+        String symbol = (base + quote).toUpperCase();
+        long timestamp = getServerTime();
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("symbol", symbol);
+        params.put("side", "BUY");
+        params.put("type", "MARKET");
+        params.put("quoteOrderQty", quoteAmount.toPlainString());
+        params.put("timestamp", String.valueOf(timestamp));
+        params.put("recvWindow", "5000");
+
+        String query = signQuery(params, apiSecret);
+        String uri = "/api/v3/order?" + query;
+        LOG.info("mexc POST {}", LogSanitizer.sanitize(uri));
+
+        JsonNode response = webClient.post()
+                .uri(uri)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .header("X-MEXC-APIKEY", apiKey)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .onErrorResume(org.springframework.web.reactive.function.client.WebClientResponseException.class, ex -> {
+                    String msg = "MEXC order failed: HTTP " + ex.getStatusCode().value();
+                    String respBody = ex.getResponseBodyAsString();
+                    if (respBody != null && !respBody.isBlank()) {
+                        msg = msg + " body=" + respBody;
+                    }
+                    return reactor.core.publisher.Mono.error(new ExchangeException(msg, ex));
+                })
+                .block();
+
+        if (response == null || response.get("orderId") == null) {
+            throw new ExchangeException("Unexpected response from MEXC order API");
+        }
+        String orderId = response.get("orderId").asText();
+        return new OrderResult(orderId, "SUBMITTED", "market buy submitted");
     }
 
     @Override
     public OrderResult marketSell(String base, String quote, BigDecimal baseAmount) {
-        throw notImplemented("POST /api/v3/order (signed)");
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        if (baseAmount == null || baseAmount.signum() <= 0) {
+            throw new ExchangeException("Base amount must be positive");
+        }
+        String apiKey = secrets == null ? null : secrets.getApiKey();
+        String apiSecret = secrets == null ? null : secrets.getApiSecret();
+        if (StringUtils.isBlank(apiKey) || StringUtils.isBlank(apiSecret)) {
+            throw new ExchangeException("Missing API credentials for mexc");
+        }
+
+        String symbol = (base + quote).toUpperCase();
+        long timestamp = getServerTime();
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("symbol", symbol);
+        params.put("side", "SELL");
+        params.put("type", "MARKET");
+        params.put("quantity", baseAmount.toPlainString());
+        params.put("timestamp", String.valueOf(timestamp));
+        params.put("recvWindow", "5000");
+
+        String query = signQuery(params, apiSecret);
+        String uri = "/api/v3/order?" + query;
+        LOG.info("mexc POST {}", LogSanitizer.sanitize(uri));
+
+        JsonNode response = webClient.post()
+                .uri(uri)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .header("X-MEXC-APIKEY", apiKey)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .onErrorResume(org.springframework.web.reactive.function.client.WebClientResponseException.class, ex -> {
+                    String msg = "MEXC order failed: HTTP " + ex.getStatusCode().value();
+                    String respBody = ex.getResponseBodyAsString();
+                    if (respBody != null && !respBody.isBlank()) {
+                        msg = msg + " body=" + respBody;
+                    }
+                    return reactor.core.publisher.Mono.error(new ExchangeException(msg, ex));
+                })
+                .block();
+
+        if (response == null || response.get("orderId") == null) {
+            throw new ExchangeException("Unexpected response from MEXC order API");
+        }
+        String orderId = response.get("orderId").asText();
+        return new OrderResult(orderId, "SUBMITTED", "market sell submitted");
     }
 
     @Override
     public WithdrawResult withdraw(String asset, BigDecimal amount, String network, String address, String memoOrNull) {
-        throw notImplemented("POST /api/v3/capital/withdraw/apply (signed)");
+        if (StringUtils.isBlank(asset)) {
+            throw new ExchangeException("Asset is required");
+        }
+        if (amount == null || amount.signum() <= 0) {
+            throw new ExchangeException("Amount must be positive");
+        }
+        if (StringUtils.isBlank(address)) {
+            throw new ExchangeException("Address is required");
+        }
+        String apiKey = secrets == null ? null : secrets.getApiKey();
+        String apiSecret = secrets == null ? null : secrets.getApiSecret();
+        if (StringUtils.isBlank(apiKey) || StringUtils.isBlank(apiSecret)) {
+            throw new ExchangeException("Missing API credentials for mexc");
+        }
+
+        try {
+            return doWithdraw(true, false, "netWork", asset, amount, network, address, memoOrNull, apiKey, apiSecret);
+        } catch (ExchangeException e) {
+            String msg = e.getMessage();
+            if (msg != null && (msg.contains("\"code\":10232") || msg.contains("\"code\":700004"))) {
+                // Some MEXC accounts expect both "coin" and "currency"
+                try {
+                    return doWithdraw(true, true, "netWork", asset, amount, network, address, memoOrNull, apiKey, apiSecret);
+                } catch (ExchangeException e2) {
+                    String msg2 = e2.getMessage();
+                    if (msg2 != null && msg2.contains("\"code\":10232")) {
+                        // Fallback to "chain" parameter name
+                        return doWithdraw(true, true, "chain", asset, amount, network, address, memoOrNull, apiKey, apiSecret);
+                    }
+                    throw e2;
+                }
+            }
+            throw e;
+        }
     }
+
+    private WithdrawResult doWithdraw(boolean includeCoin, boolean includeCurrency, String networkKey, String asset, BigDecimal amount, String network,
+                                      String address, String memoOrNull, String apiKey, String apiSecret) {
+        long timestamp = getServerTime();
+        Map<String, String> params = new LinkedHashMap<>();
+        if (includeCoin) {
+            params.put("coin", asset.toUpperCase());
+        }
+        if (includeCurrency) {
+            params.put("currency", asset.toUpperCase());
+        }
+        params.put("address", address);
+        params.put("amount", amount.toPlainString());
+        String normalizedNetwork = normalizeDepositNetwork(network);
+        if (StringUtils.isNotBlank(normalizedNetwork)) {
+            params.put(networkKey, normalizedNetwork);
+        }
+        if (StringUtils.isNotBlank(memoOrNull)) {
+            params.put("memo", memoOrNull);
+        }
+        params.put("timestamp", String.valueOf(timestamp));
+        params.put("recvWindow", "5000");
+
+        String query = signQuery(params, apiSecret);
+        String uri = "/api/v3/capital/withdraw?" + query;
+        LOG.info("mexc POST {}", LogSanitizer.sanitize(uri));
+
+        JsonNode response = webClient.post()
+                .uri(uri)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .header("X-MEXC-APIKEY", apiKey)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .onErrorResume(org.springframework.web.reactive.function.client.WebClientResponseException.class, ex -> {
+                    String msg = "MEXC withdraw failed: HTTP " + ex.getStatusCode().value();
+                    String respBody = ex.getResponseBodyAsString();
+                    if (respBody != null && !respBody.isBlank()) {
+                        msg = msg + " body=" + respBody;
+                    }
+                    return reactor.core.publisher.Mono.error(new ExchangeException(msg, ex));
+                })
+                .block();
+
+        if (response == null) {
+            throw new ExchangeException("Unexpected response from MEXC withdraw API");
+        }
+        String id = response.hasNonNull("id") ? response.get("id").asText() : null;
+        if (StringUtils.isBlank(id)) {
+            id = response.hasNonNull("withdrawId") ? response.get("withdrawId").asText() : null;
+        }
+        if (StringUtils.isBlank(id)) {
+            throw new ExchangeException("Missing withdrawal id from MEXC withdraw API");
+        }
+        return new WithdrawResult(id, "SUBMITTED", "withdraw submitted");
+    }
+
 
     @Override
     public ExchangeTime syncTime() {
@@ -194,7 +375,7 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
 
     @Override
     public ExchangeCapabilities capabilities() {
-        return new ExchangeCapabilities(true, false, false, false, false, false, true);
+        return new ExchangeCapabilities(true, false, false, true, false, false, true);
     }
 
     private String sign(String data, String secret) {
