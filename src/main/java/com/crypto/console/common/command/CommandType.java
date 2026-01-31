@@ -7,6 +7,7 @@ public enum CommandType {
     BALANCE,
     FEES,
     ORDERBOOK,
+    DEPOSIT,
     HELP,
     EXIT,
     INVALID

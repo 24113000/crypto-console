@@ -1,5 +1,6 @@
 package com.crypto.console.exchanges.exstub1;
 
+import com.crypto.console.common.exchange.DepositAddressProvider;
 import com.crypto.console.common.exchange.DepositNetworkProvider;
 import com.crypto.console.common.exchange.impl.BaseExchangeClient;
 import com.crypto.console.common.model.Balance;
@@ -19,7 +20,7 @@ import java.util.Map;
 import java.util.Set;
 
 @Slf4j
-public class ExStub1Client extends BaseExchangeClient implements DepositNetworkProvider {
+public class ExStub1Client extends BaseExchangeClient implements DepositNetworkProvider, DepositAddressProvider {
     public ExStub1Client(AppProperties.ExchangeConfig cfg, SecretsProperties.ExchangeSecrets secrets) {
         super("exstub1", cfg, secrets);
     }
@@ -73,6 +74,12 @@ public class ExStub1Client extends BaseExchangeClient implements DepositNetworkP
     public Set<String> getDepositNetworks(String asset) {
         LOG.info("exstub1 getDepositNetworks asset={}", asset);
         return Set.of("STUBNET");
+    }
+
+    @Override
+    public String getDepositAddress(String asset, String network) {
+        LOG.info("exstub1 getDepositAddress asset={} network={}", asset, network);
+        return "stub-address";
     }
 
     @Override

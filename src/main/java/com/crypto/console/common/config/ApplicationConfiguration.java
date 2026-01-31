@@ -43,8 +43,8 @@ public class ApplicationConfiguration {
     }
 
     @Bean
-    public CommandExecutor commandExecutor(ExchangeRegistry registry, MoveService moveService, FeeResolver feeResolver) {
-        return new CommandExecutor(registry, moveService, feeResolver);
+    public CommandExecutor commandExecutor(ExchangeRegistry registry, MoveService moveService, FeeResolver feeResolver, DepositNetworkResolver depositNetworkResolver) {
+        return new CommandExecutor(registry, moveService, feeResolver, depositNetworkResolver);
     }
 
     @Bean

@@ -3,11 +3,13 @@ package com.crypto.console.common.service;
 import com.crypto.console.common.command.Command;
 import com.crypto.console.common.command.impl.BalanceCommand;
 import com.crypto.console.common.command.impl.BuyCommand;
+import com.crypto.console.common.command.impl.DepositCommand;
 import com.crypto.console.common.command.impl.FeesCommand;
 import com.crypto.console.common.command.impl.InvalidCommand;
 import com.crypto.console.common.command.impl.MoveCommand;
 import com.crypto.console.common.command.impl.OrderBookCommand;
 import com.crypto.console.common.command.impl.SellCommand;
+import com.crypto.console.common.exchange.DepositAddressProvider;
 import com.crypto.console.common.exchange.ExchangeClient;
 import com.crypto.console.common.exchange.impl.ExchangeRegistry;
 import com.crypto.console.common.model.Balance;
@@ -29,11 +31,13 @@ public class CommandExecutor {
     private final ExchangeRegistry registry;
     private final MoveService moveService;
     private final FeeResolver feeResolver;
+    private final DepositNetworkResolver networkResolver;
 
-    public CommandExecutor(ExchangeRegistry registry, MoveService moveService, FeeResolver feeResolver) {
+    public CommandExecutor(ExchangeRegistry registry, MoveService moveService, FeeResolver feeResolver, DepositNetworkResolver networkResolver) {
         this.registry = registry;
         this.moveService = moveService;
         this.feeResolver = feeResolver;
+        this.networkResolver = networkResolver;
     }
 
     public CommandResult execute(Command command) {
@@ -49,6 +53,7 @@ public class CommandExecutor {
                 case BUY -> handleBuy((BuyCommand) command);
                 case SELL -> handleSell((SellCommand) command);
                 case MOVE -> handleMove((MoveCommand) command);
+                case DEPOSIT -> handleDeposit((DepositCommand) command);
                 default -> CommandResult.failure("Unsupported command");
             };
         } catch (ExchangeException e) {
@@ -138,6 +143,27 @@ public class CommandExecutor {
         return CommandResult.success(message);
     }
 
+    private CommandResult handleDeposit(DepositCommand cmd) {
+        requireSecrets(cmd.exchange);
+        ExchangeClient client = registry.getClient(cmd.exchange);
+        String address = null;
+        if (client instanceof DepositAddressProvider provider) {
+            address = provider.getDepositAddress(cmd.asset, null);
+        }
+        if (address == null || address.isBlank()) {
+            address = "N/A";
+        }
+
+        var networks = networkResolver.resolveDepositNetworks(client, cmd.exchange, cmd.asset);
+        StringBuilder sb = new StringBuilder();
+        sb.append("address: ").append(address);
+        sb.append("\nsupported networks:");
+        networks.stream().sorted().forEach(n -> sb.append("\n").append(n));
+        String message = sb.toString();
+        logSuccess(LogSanitizer.sanitize(message));
+        return CommandResult.success(message);
+    }
+
     private static void logSuccess(String message) {
         LOG.info("SUCCESS: {}", message);
     }
@@ -155,6 +181,7 @@ public class CommandExecutor {
                 "  buy <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
                 "  sell <exchange> <baseAsset> <baseAmount> <quoteAsset>",
                 "  balance <exchange> <asset>",
+                "  deposit <exchange> <asset>",
                 "  fees <exchange> <asset>",
                 "  orderbook <exchange> <base> <quote>",
                 "  help",
@@ -162,5 +189,4 @@ public class CommandExecutor {
         );
     }
 }
-
 
