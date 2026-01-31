@@ -1,6 +1,7 @@
 package com.crypto.console.common.service;
 
 import com.crypto.console.common.command.Command;
+import com.crypto.console.common.command.impl.AddressCommand;
 import com.crypto.console.common.command.impl.BalanceCommand;
 import com.crypto.console.common.command.impl.BuyCommand;
 import com.crypto.console.common.command.impl.DepositCommand;
@@ -9,6 +10,7 @@ import com.crypto.console.common.command.impl.InvalidCommand;
 import com.crypto.console.common.command.impl.MoveCommand;
 import com.crypto.console.common.command.impl.OrderBookCommand;
 import com.crypto.console.common.command.impl.SellCommand;
+import com.crypto.console.common.exchange.DepositAddressProvider;
 import com.crypto.console.common.exchange.ExchangeClient;
 import com.crypto.console.common.exchange.impl.ExchangeRegistry;
 import com.crypto.console.common.model.Balance;
@@ -53,6 +55,7 @@ public class CommandExecutor {
                 case SELL -> handleSell((SellCommand) command);
                 case MOVE -> handleMove((MoveCommand) command);
                 case DEPOSIT -> handleDeposit((DepositCommand) command);
+                case ADDRESS -> handleAddress((AddressCommand) command);
                 default -> CommandResult.failure("Unsupported command");
             };
         } catch (ExchangeException e) {
@@ -154,6 +157,20 @@ public class CommandExecutor {
         return CommandResult.success(message);
     }
 
+    private CommandResult handleAddress(AddressCommand cmd) {
+        requireSecrets(cmd.exchange);
+        ExchangeClient client = registry.getClient(cmd.exchange);
+        if (!(client instanceof DepositAddressProvider provider)) {
+            throw new ExchangeException("Deposit address not supported for " + cmd.exchange);
+        }
+        String address = provider.getDepositAddress(cmd.asset, cmd.network);
+        if (address == null || address.isBlank()) {
+            throw new ExchangeException("No deposit address returned for " + cmd.exchange + " " + cmd.asset + " " + cmd.network);
+        }
+        logSuccess(LogSanitizer.sanitize(address));
+        return CommandResult.success(address);
+    }
+
     private static void logSuccess(String message) {
         LOG.info("SUCCESS: {}", message);
     }
@@ -172,6 +189,7 @@ public class CommandExecutor {
                 "  sell <exchange> <baseAsset> <baseAmount> <quoteAsset>",
                 "  balance <exchange> <asset>",
                 "  deposit <exchange> <asset>",
+                "  address <exchange> <asset> <network>",
                 "  fees <exchange> <asset>",
                 "  orderbook <exchange> <base> <quote>",
                 "  help",

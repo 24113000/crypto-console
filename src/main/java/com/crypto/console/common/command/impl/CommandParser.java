@@ -24,6 +24,7 @@ public class CommandParser {
             case "fees" -> parseFees(trimmed, parts);
             case "orderbook" -> parseOrderBook(trimmed, parts);
             case "deposit" -> parseDeposit(trimmed, parts);
+            case "address" -> parseAddress(trimmed, parts);
             case "help", "?" -> new HelpCommand(trimmed);
             case "exit", "quit" -> new ExitCommand(trimmed);
             default -> new InvalidCommand(trimmed, "Unknown command: " + parts[0]);
@@ -91,6 +92,13 @@ public class CommandParser {
         return new DepositCommand(raw, parts[1].toLowerCase(), parts[2].toUpperCase());
     }
 
+    private Command parseAddress(String raw, String[] parts) {
+        if (parts.length != 4) {
+            return new InvalidCommand(raw, "Syntax: address <exchange> <asset> <network>");
+        }
+        return new AddressCommand(raw, parts[1].toLowerCase(), parts[2].toUpperCase(), parts[3].toUpperCase());
+    }
+
     private BigDecimal parsePositiveDecimal(String value, String raw) {
         try {
             BigDecimal amount = new BigDecimal(value);
@@ -103,4 +111,3 @@ public class CommandParser {
         }
     }
 }
-

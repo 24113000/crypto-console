@@ -23,7 +23,7 @@ public abstract class BaseExchangeClient implements ExchangeClient {
             throw new IllegalStateException("Missing baseUrl for exchange: " + name);
         }
         ExchangeStrategies strategies = ExchangeStrategies.builder()
-                .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
+                .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(10 * 1024 * 1024))
                 .build();
         this.webClient = WebClient.builder()
                 .baseUrl(this.baseUrl)
@@ -45,5 +45,4 @@ public abstract class BaseExchangeClient implements ExchangeClient {
         return new ExchangeCapabilities(false, false, false, false, false, false, false);
     }
 }
-
 

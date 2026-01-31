@@ -8,6 +8,7 @@ public enum CommandType {
     FEES,
     ORDERBOOK,
     DEPOSIT,
+    ADDRESS,
     HELP,
     EXIT,
     INVALID
