@@ -76,7 +76,69 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
 
     @Override
     public OrderResult marketBuy(String base, String quote, BigDecimal quoteAmount) {
-        throw notImplemented("POST /api/v3/order (signed)");
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        if (quoteAmount == null || quoteAmount.signum() <= 0) {
+            throw new ExchangeException("Quote amount must be positive");
+        }
+        String apiKey = secrets == null ? null : secrets.getApiKey();
+        String apiSecret = secrets == null ? null : secrets.getApiSecret();
+        if (StringUtils.isBlank(apiKey) || StringUtils.isBlank(apiSecret)) {
+            throw new ExchangeException("Missing API credentials for binance");
+        }
+
+        // 1) Move quote asset from Funding to Spot.
+        transferFundingToSpot(apiKey, apiSecret, quote, quoteAmount);
+
+        // 2) Place market buy using quoteOrderQty.
+        String symbol = (base + quote).toUpperCase();
+        long ts = System.currentTimeMillis();
+        String orderQuery = "symbol=" + symbol
+                + "&side=BUY"
+                + "&type=MARKET"
+                + "&quoteOrderQty=" + quoteAmount.toPlainString()
+                + "&newOrderRespType=RESULT"
+                + "&timestamp=" + ts
+                + "&recvWindow=5000";
+        String orderSignature = sign(orderQuery, apiSecret);
+        String orderUri = "/api/v3/order?" + orderQuery + "&signature=" + orderSignature;
+
+        JsonNode orderResp = webClient.post()
+                .uri(orderUri)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .header("X-MBX-APIKEY", apiKey)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
+
+        if (orderResp == null || orderResp.get("orderId") == null) {
+            throw new ExchangeException("Unexpected response from Binance order API");
+        }
+
+        long orderId = orderResp.get("orderId").asLong();
+        String status = orderResp.hasNonNull("status") ? orderResp.get("status").asText() : "NEW";
+        BigDecimal executedQty = toDecimal(orderResp.get("executedQty"));
+
+        // 3) Wait until filled.
+        if (!"FILLED".equalsIgnoreCase(status)) {
+            OrderStatusResult finalStatus = pollOrderStatus(apiKey, apiSecret, symbol, orderId);
+            status = finalStatus.status;
+            executedQty = finalStatus.executedQty;
+        }
+
+        if (!"FILLED".equalsIgnoreCase(status)) {
+            return new OrderResult(String.valueOf(orderId), status, "Order not filled");
+        }
+
+        if (executedQty.signum() <= 0) {
+            throw new ExchangeException("Order filled but executed quantity is zero");
+        }
+
+        // 4) Move bought base asset from Spot to Funding.
+        transferSpotToFunding(apiKey, apiSecret, base, executedQty);
+
+        return new OrderResult(String.valueOf(orderId), status, "filledQty=" + executedQty);
     }
 
     @Override
@@ -185,6 +247,78 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         return new ExchangeCapabilities(true, true, true, true, true, false, true);
     }
 
+    private void transferFundingToSpot(String apiKey, String apiSecret, String asset, BigDecimal amount) {
+        transfer(apiKey, apiSecret, "FUNDING_MAIN", asset, amount);
+    }
+
+    private void transferSpotToFunding(String apiKey, String apiSecret, String asset, BigDecimal amount) {
+        transfer(apiKey, apiSecret, "MAIN_FUNDING", asset, amount);
+    }
+
+    private void transfer(String apiKey, String apiSecret, String type, String asset, BigDecimal amount) {
+        long ts = System.currentTimeMillis();
+        String query = "type=" + type
+                + "&asset=" + asset.toUpperCase()
+                + "&amount=" + amount.toPlainString()
+                + "&timestamp=" + ts
+                + "&recvWindow=5000";
+        String signature = sign(query, apiSecret);
+        String uri = "/sapi/v1/asset/transfer?" + query + "&signature=" + signature;
+        JsonNode resp = webClient.post()
+                .uri(uri)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .header("X-MBX-APIKEY", apiKey)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
+        if (resp == null || resp.get("tranId") == null) {
+            throw new ExchangeException("Unexpected response from Binance transfer API (" + type + ")");
+        }
+    }
+
+    private OrderStatusResult pollOrderStatus(String apiKey, String apiSecret, String symbol, long orderId) {
+        long deadline = System.currentTimeMillis() + 60_000;
+        while (System.currentTimeMillis() < deadline) {
+            OrderStatusResult status = getOrderStatus(apiKey, apiSecret, symbol, orderId);
+            if ("FILLED".equalsIgnoreCase(status.status)
+                    || "CANCELED".equalsIgnoreCase(status.status)
+                    || "REJECTED".equalsIgnoreCase(status.status)
+                    || "EXPIRED".equalsIgnoreCase(status.status)) {
+                return status;
+            }
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new ExchangeException("Order polling interrupted", e);
+            }
+        }
+        return getOrderStatus(apiKey, apiSecret, symbol, orderId);
+    }
+
+    private OrderStatusResult getOrderStatus(String apiKey, String apiSecret, String symbol, long orderId) {
+        long ts = System.currentTimeMillis();
+        String query = "symbol=" + symbol + "&orderId=" + orderId + "&timestamp=" + ts + "&recvWindow=5000";
+        String signature = sign(query, apiSecret);
+        String uri = "/api/v3/order?" + query + "&signature=" + signature;
+        JsonNode resp = webClient.get()
+                .uri(uri)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .header("X-MBX-APIKEY", apiKey)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
+        if (resp == null || resp.get("status") == null) {
+            throw new ExchangeException("Unexpected response from Binance order status API");
+        }
+        String status = resp.get("status").asText();
+        BigDecimal executedQty = toDecimal(resp.get("executedQty"));
+        return new OrderStatusResult(status, executedQty);
+    }
+
+    private record OrderStatusResult(String status, BigDecimal executedQty) {
+    }
+
     private String sign(String data, String secret) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
@@ -211,5 +345,4 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         return new BigDecimal(text);
     }
 }
-
 
