@@ -1,5 +1,5 @@
 param(
-    [string]$ConfigDir = "config_dev",
+    [string]$ConfigDir = "config",
     [string]$JarPath = "build\\libs\\crypto-console-0.1.0.jar"
 )
 
