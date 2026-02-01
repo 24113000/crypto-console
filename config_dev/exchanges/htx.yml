@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    htx:
+      baseUrl: "https://api.huobi.pro"

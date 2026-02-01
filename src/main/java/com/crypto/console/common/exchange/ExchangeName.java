@@ -10,6 +10,7 @@ public enum ExchangeName {
     BITMART("bitmart"),
     KUCOIN("kucoin"),
     GATEIO("gateio"),
+    HTX("htx"),
     EXSTUB1("exstub1"),
     EXSTUB2("exstub2");
 
