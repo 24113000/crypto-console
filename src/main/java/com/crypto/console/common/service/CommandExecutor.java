@@ -5,7 +5,6 @@ import com.crypto.console.common.command.impl.AddressCommand;
 import com.crypto.console.common.command.impl.BalanceCommand;
 import com.crypto.console.common.command.impl.BuyCommand;
 import com.crypto.console.common.command.impl.DepositCommand;
-import com.crypto.console.common.command.impl.FeesCommand;
 import com.crypto.console.common.command.impl.InvalidCommand;
 import com.crypto.console.common.command.impl.MoveCommand;
 import com.crypto.console.common.command.impl.OrderBookCommand;
@@ -19,25 +18,20 @@ import com.crypto.console.common.model.ExchangeException;
 import com.crypto.console.common.model.OrderBook;
 import com.crypto.console.common.model.OrderBookEntry;
 import com.crypto.console.common.model.OrderResult;
-import com.crypto.console.common.model.WithdrawalFees;
 import com.crypto.console.common.util.LogSanitizer;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.Comparator;
-import java.util.Map;
 
 @Slf4j
 public class CommandExecutor {
 
     private final ExchangeRegistry registry;
     private final MoveService moveService;
-    private final FeeResolver feeResolver;
     private final DepositNetworkResolver networkResolver;
 
-    public CommandExecutor(ExchangeRegistry registry, MoveService moveService, FeeResolver feeResolver, DepositNetworkResolver networkResolver) {
+    public CommandExecutor(ExchangeRegistry registry, MoveService moveService, DepositNetworkResolver networkResolver) {
         this.registry = registry;
         this.moveService = moveService;
-        this.feeResolver = feeResolver;
         this.networkResolver = networkResolver;
     }
 
@@ -49,7 +43,6 @@ public class CommandExecutor {
                 case HELP -> CommandResult.success(helpText());
                 case INVALID -> CommandResult.failure(((InvalidCommand) command).error);
                 case BALANCE -> handleBalance((BalanceCommand) command);
-                case FEES -> handleFees((FeesCommand) command);
                 case ORDERBOOK -> handleOrderBook((OrderBookCommand) command);
                 case BUY -> handleBuy((BuyCommand) command);
                 case SELL -> handleSell((SellCommand) command);
@@ -79,18 +72,6 @@ public class CommandExecutor {
                 client.name(), cmd.asset, balance.free, balance.locked == null ? "0" : balance.locked);
         logSuccess(message);
         return CommandResult.success(message);
-    }
-
-    private CommandResult handleFees(FeesCommand cmd) {
-        ExchangeClient client = registry.getClient(cmd.exchange);
-        WithdrawalFees fees = feeResolver.resolveWithdrawalFees(client, cmd.exchange, cmd.asset);
-        StringBuilder sb = new StringBuilder();
-        sb.append(client.name()).append(" ").append(cmd.asset).append(" withdrawal fees:");
-        fees.feeByNetwork.entrySet().stream()
-                .sorted(Comparator.comparing(Map.Entry::getKey))
-                .forEach(entry -> sb.append("\n  ").append(entry.getKey()).append(": ").append(entry.getValue()));
-        logSuccess(LogSanitizer.sanitize(sb.toString()));
-        return CommandResult.success(sb.toString());
     }
 
     private CommandResult handleOrderBook(OrderBookCommand cmd) {
@@ -190,7 +171,6 @@ public class CommandExecutor {
                 "  balance <exchange> <asset>",
                 "  deposit <exchange> <asset>",
                 "  address <exchange> <asset> <network>",
-                "  fees <exchange> <asset>",
                 "  orderbook <exchange> <base> <quote>",
                 "  help",
                 "  exit"

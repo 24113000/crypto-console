@@ -6,7 +6,6 @@ import com.crypto.console.common.properties.AppProperties;
 import com.crypto.console.common.properties.SecretsProperties;
 import com.crypto.console.common.service.CommandExecutor;
 import com.crypto.console.common.service.DepositNetworkResolver;
-import com.crypto.console.common.service.FeeResolver;
 import com.crypto.console.common.service.MoveService;
 import com.crypto.console.common.service.NetworkSelector;
 import com.crypto.console.repl.ReplRunner;
@@ -23,11 +22,6 @@ public class ApplicationConfiguration {
     }
 
     @Bean
-    public FeeResolver feeResolver(AppProperties appProperties) {
-        return new FeeResolver(appProperties);
-    }
-
-    @Bean
     public DepositNetworkResolver depositNetworkResolver(AppProperties appProperties) {
         return new DepositNetworkResolver(appProperties);
     }
@@ -38,13 +32,13 @@ public class ApplicationConfiguration {
     }
 
     @Bean
-    public MoveService moveService(ExchangeRegistry registry, AppProperties appProperties, FeeResolver feeResolver, DepositNetworkResolver depositNetworkResolver, NetworkSelector networkSelector) {
-        return new MoveService(registry, appProperties, feeResolver, depositNetworkResolver, networkSelector);
+    public MoveService moveService(ExchangeRegistry registry, AppProperties appProperties, DepositNetworkResolver depositNetworkResolver, NetworkSelector networkSelector) {
+        return new MoveService(registry, appProperties, depositNetworkResolver, networkSelector);
     }
 
     @Bean
-    public CommandExecutor commandExecutor(ExchangeRegistry registry, MoveService moveService, FeeResolver feeResolver, DepositNetworkResolver depositNetworkResolver) {
-        return new CommandExecutor(registry, moveService, feeResolver, depositNetworkResolver);
+    public CommandExecutor commandExecutor(ExchangeRegistry registry, MoveService moveService, DepositNetworkResolver depositNetworkResolver) {
+        return new CommandExecutor(registry, moveService, depositNetworkResolver);
     }
 
     @Bean

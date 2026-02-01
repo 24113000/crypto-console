@@ -138,7 +138,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         if (StringUtils.isNotBlank(network)) {
             query.append("&network=").append(normalizeDepositNetwork(network));
         }
-        query.append("&walletType=1");
+        query.append("&walletType=1");//ommit we want to work wit SPOT
         if (StringUtils.isNotBlank(memoOrNull)) {
             query.append("&addressTag=").append(memoOrNull);
         }

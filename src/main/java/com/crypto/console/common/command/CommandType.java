@@ -5,7 +5,6 @@ public enum CommandType {
     BUY,
     SELL,
     BALANCE,
-    FEES,
     ORDERBOOK,
     DEPOSIT,
     ADDRESS,
