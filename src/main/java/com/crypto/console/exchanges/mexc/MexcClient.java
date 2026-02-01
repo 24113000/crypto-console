@@ -208,16 +208,7 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
             String msg = e.getMessage();
             if (msg != null && (msg.contains("\"code\":10232") || msg.contains("\"code\":700004"))) {
                 // Some MEXC accounts expect both "coin" and "currency"
-                try {
-                    return doWithdraw(true, true, "netWork", asset, amount, network, address, memoOrNull, apiKey, apiSecret);
-                } catch (ExchangeException e2) {
-                    String msg2 = e2.getMessage();
-                    if (msg2 != null && msg2.contains("\"code\":10232")) {
-                        // Fallback to "chain" parameter name
-                        return doWithdraw(true, true, "chain", asset, amount, network, address, memoOrNull, apiKey, apiSecret);
-                    }
-                    throw e2;
-                }
+                return doWithdraw(true, true, "netWork", asset, amount, network, address, memoOrNull, apiKey, apiSecret);
             }
             throw e;
         }
@@ -227,18 +218,20 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
                                       String address, String memoOrNull, String apiKey, String apiSecret) {
         long timestamp = getServerTime();
         Map<String, String> params = new LinkedHashMap<>();
+        ResolvedWithdraw resolved = resolveWithdrawCoinAndNetwork(asset, network, apiKey, apiSecret);
         if (includeCoin) {
-            params.put("coin", asset.toUpperCase());
+            params.put("coin", resolved.coin);
         }
         if (includeCurrency) {
-            params.put("currency", asset.toUpperCase());
+            params.put("currency", resolved.coin);
         }
         params.put("address", address);
         params.put("amount", amount.toPlainString());
-        String normalizedNetwork = normalizeDepositNetwork(network);
-        if (StringUtils.isNotBlank(normalizedNetwork)) {
-            params.put(networkKey, normalizedNetwork);
+        String normalizedNetwork = resolveWithdrawNetwork(resolved, network);
+        if (StringUtils.isBlank(normalizedNetwork)) {
+            throw new ExchangeException("MEXC withdraw requires network (netWork) parameter");
         }
+        params.put(networkKey, normalizedNetwork);
         if (StringUtils.isNotBlank(memoOrNull)) {
             params.put("memo", memoOrNull);
         }
@@ -276,6 +269,61 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
             throw new ExchangeException("Missing withdrawal id from MEXC withdraw API");
         }
         return new WithdrawResult(id, "SUBMITTED", "withdraw submitted");
+    }
+
+    private ResolvedWithdraw resolveWithdrawCoinAndNetwork(String asset, String network, String apiKey, String apiSecret) {
+        String assetUpper = asset.toUpperCase();
+        long ts = getServerTime();
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("timestamp", String.valueOf(ts));
+        params.put("recvWindow", "5000");
+        String query = signQuery(params, apiSecret);
+        String uri = "/api/v3/capital/config/getall?" + query;
+        LOG.info("mexc GET {}", LogSanitizer.sanitize(uri));
+        JsonNode response = getJson(uri, apiKey);
+        if (response == null || !response.isArray()) {
+            throw new ExchangeException("Unexpected response from MEXC config API");
+        }
+
+        String normalizedTarget = normalizeDepositNetwork(network);
+        for (JsonNode coin : response) {
+            String coinName = coin.hasNonNull("coin") ? coin.get("coin").asText() : null;
+            if (coinName == null || !coinName.equalsIgnoreCase(assetUpper)) {
+                continue;
+            }
+            String resolvedNetwork = null;
+            JsonNode networkList = coin.get("networkList");
+            if (networkList != null && networkList.isArray()) {
+                for (JsonNode net : networkList) {
+                    String name = net.hasNonNull("netWork") ? net.get("netWork").asText()
+                            : (net.hasNonNull("network") ? net.get("network").asText() : null);
+                    if (StringUtils.isBlank(name)) {
+                        continue;
+                    }
+                    if (StringUtils.isBlank(normalizedTarget)) {
+                        resolvedNetwork = name;
+                        break;
+                    }
+                    if (normalizeDepositNetwork(name).equalsIgnoreCase(normalizedTarget)) {
+                        resolvedNetwork = name;
+                        break;
+                    }
+                }
+            }
+            return new ResolvedWithdraw(coinName.toUpperCase(), resolvedNetwork);
+        }
+
+        throw new ExchangeException("MEXC does not support withdrawals for asset: " + assetUpper);
+    }
+
+    private String resolveWithdrawNetwork(ResolvedWithdraw resolved, String network) {
+        if (StringUtils.isNotBlank(resolved.network)) {
+            return resolved.network;
+        }
+        return normalizeDepositNetwork(network);
+    }
+
+    private record ResolvedWithdraw(String coin, String network) {
     }
 
 
@@ -537,15 +585,21 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
         if (StringUtils.isBlank(network)) {
             return null;
         }
-        String cleaned = network.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
+        String candidate = network;
+        int openIdx = candidate.indexOf('(');
+        int closeIdx = candidate.indexOf(')');
+        if (openIdx >= 0 && closeIdx > openIdx) {
+            candidate = candidate.substring(openIdx + 1, closeIdx);
+        }
+        String cleaned = candidate.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
         return switch (cleaned) {
             case "ARBITRUMONE", "ARB" -> "ARBITRUM";
             case "AVALANCHECCHAIN", "AVAXCCHAIN", "AVAXC" -> "AVAXC";
             case "BNBSMARTCHAIN", "BSC", "BEP20" -> "BSC";
             case "ETHEREUM", "ERC20", "ETH" -> "ERC20";
             case "POLYGON", "MATIC" -> "MATIC";
-            case "SOLANA", "SOL" -> "SOL";
-            case "TRON", "TRC20", "TRX" -> "TRC20";
+            case "SOLANA", "SOL", "SOLANASOL" -> "SOL";
+            case "TRON", "TRC20", "TRX", "TRONTRC20" -> "TRC20";
             case "OPTIMISM", "OP" -> "OPTIMISM";
             case "KAIA" -> "KAIA";
             case "CELO" -> "CELO";

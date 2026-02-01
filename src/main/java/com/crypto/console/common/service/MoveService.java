@@ -2,6 +2,7 @@ package com.crypto.console.common.service;
 
 import com.crypto.console.common.exchange.DepositAddressProvider;
 import com.crypto.console.common.exchange.DepositNetworkNormalizer;
+import com.crypto.console.common.exchange.DepositNetworkProvider;
 import com.crypto.console.common.exchange.ExchangeClient;
 import com.crypto.console.common.exchange.ExchangeName;
 import com.crypto.console.common.exchange.impl.ExchangeRegistry;
@@ -12,6 +13,8 @@ import com.crypto.console.common.properties.AppProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
@@ -20,6 +23,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Slf4j
 public class MoveService {
@@ -42,30 +46,38 @@ public class MoveService {
         Balance baseline = recipient.getBalance(asset);
         BigDecimal baselineFree = baseline == null || baseline.free == null ? BigDecimal.ZERO : baseline.free;
 
-        Set<String> networks = networkResolver.resolveDepositNetworks(recipient, to, asset);
-        String selectedNetwork = selectNetwork(to, asset, networks);
-        String recipientNetwork = selectedNetwork;
+        Set<String> recipientNetworks = networkResolver.resolveDepositNetworks(recipient, to, asset);
+        Set<String> senderNetworks = resolveSenderNetworks(sender, recipientNetworks, asset);
+
+        String selectedRecipientNetwork = selectNetwork(to, asset, recipientNetworks);
+        String selectedSenderNetwork = selectNetwork(from, asset, senderNetworks);
+
+        String recipientNetwork = selectedRecipientNetwork;
         if (recipient instanceof DepositNetworkNormalizer normalizer) {
-            recipientNetwork = normalizer.normalizeDepositNetwork(selectedNetwork);
+            recipientNetwork = normalizer.normalizeDepositNetwork(selectedRecipientNetwork);
         }
-        String senderNetwork = selectedNetwork;
+        String senderNetwork = selectedSenderNetwork;
         if (sender instanceof DepositNetworkNormalizer normalizer) {
-            senderNetwork = normalizer.normalizeDepositNetwork(selectedNetwork);
+            senderNetwork = normalizer.normalizeDepositNetwork(selectedSenderNetwork);
         }
-        AppProperties.AddressConfig addressConfig = getAddressConfig(to, asset, selectedNetwork);
+        AppProperties.AddressConfig addressConfig = getAddressConfig(to, asset, selectedRecipientNetwork);
         String address = addressConfig == null ? null : addressConfig.getAddress();
         String memo = addressConfig == null ? null : addressConfig.getMemo();
         if (StringUtils.isBlank(address) && recipient instanceof DepositAddressProvider provider) {
             address = provider.getDepositAddress(asset, recipientNetwork);
         }
         if (StringUtils.isBlank(address)) {
-            throw new ExchangeException("Missing withdrawal address for " + to + " " + asset + " " + selectedNetwork);
+            throw new ExchangeException("Missing withdrawal address for " + to + " " + asset + " " + selectedRecipientNetwork);
         }
         if (Boolean.TRUE.equals(addressConfig == null ? null : addressConfig.getMemoRequired()) && StringUtils.isBlank(memo)) {
-            throw new ExchangeException("Memo/tag required for " + asset + " on " + selectedNetwork + " but missing in config");
+            throw new ExchangeException("Memo/tag required for " + asset + " on " + selectedRecipientNetwork + " but missing in config");
         }
 
-        LOG.info("Withdrawing {} {} via {} (senderNetwork={}) to {} (memo={})", amount, asset, selectedNetwork, senderNetwork, address, memo);
+        if (!confirmTransfer(from, to, asset, amount, selectedSenderNetwork, selectedRecipientNetwork, senderNetwork, recipientNetwork, address, memo)) {
+            throw new ExchangeException("Transfer cancelled by user");
+        }
+
+        LOG.info("Withdrawing {} {} via {} (senderNetwork={}) to {} (memo={})", amount, asset, selectedSenderNetwork, senderNetwork, address, memo);
         WithdrawResult result = sender.withdraw(asset, amount, senderNetwork, address, memo);
         String withdrawalId = result == null ? "" : result.withdrawalId;
 
@@ -80,7 +92,7 @@ public class MoveService {
             throw new ExchangeException("Deposit not detected within timeout on " + to + " for " + asset);
         }
 
-        return "Move submitted. WithdrawalId=" + withdrawalId + " network=" + selectedNetwork + " to=" + to;
+        return "Move submitted. WithdrawalId=" + withdrawalId + " network=" + selectedSenderNetwork + " to=" + to;
     }
 
     private boolean pollForDeposit(ExchangeClient recipient, String asset, BigDecimal baseline, int intervalSeconds, int maxWaitSeconds) {
@@ -140,6 +152,55 @@ public class MoveService {
     private boolean isStubExchange(String exchange) {
         ExchangeName name = ExchangeName.from(exchange);
         return name == ExchangeName.EXSTUB1 || name == ExchangeName.EXSTUB2;
+    }
+
+    private Set<String> resolveSenderNetworks(ExchangeClient sender, Set<String> fallback, String asset) {
+        if (sender.capabilities().supportsDepositNetworks && sender instanceof DepositNetworkProvider provider) {
+            Set<String> networks = provider.getDepositNetworks(asset);
+            if (networks != null && !networks.isEmpty()) {
+                return networks;
+            }
+        }
+        return fallback;
+    }
+
+    private boolean confirmTransfer(String from, String to, String asset, BigDecimal amount,
+                                    String selectedSenderNetwork, String selectedRecipientNetwork,
+                                    String senderNetwork, String recipientNetwork,
+                                    String address, String memo) {
+        String y = ThreadLocalRandom.current().nextBoolean() ? "Y" : "y";
+        String n = "Y".equals(y) ? "n" : "N";
+        System.out.println("Transfer details:");
+        System.out.println("  from: " + from);
+        System.out.println("  to: " + to);
+        System.out.println("  asset: " + asset);
+        System.out.println("  amount: " + amount);
+        System.out.println("  sender network: " + selectedSenderNetwork + " (normalized=" + senderNetwork + ")");
+        System.out.println("  recipient network: " + selectedRecipientNetwork + " (normalized=" + recipientNetwork + ")");
+        System.out.println("  address: " + address);
+        System.out.println("  memo: " + (memo == null ? "" : memo));
+        System.out.print("Approve transfer? [" + y + "/" + n + "]: ");
+        try {
+            BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+            String line = reader.readLine();
+            if (line == null) {
+                return false;
+            }
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                return false;
+            }
+            char c = trimmed.charAt(0);
+            if (c == y.charAt(0)) {
+                return true;
+            }
+            if (c == n.charAt(0)) {
+                return false;
+            }
+            return false;
+        } catch (Exception e) {
+            throw new ExchangeException("Failed to read approval input", e);
+        }
     }
 
 }

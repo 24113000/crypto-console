@@ -2,6 +2,7 @@ package com.crypto.console.common.service;
 
 import com.crypto.console.common.model.ExchangeException;
 import com.crypto.console.common.util.ConsoleOutput;
+import org.apache.commons.lang3.StringUtils;
 import org.jline.terminal.Attributes;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
@@ -9,6 +10,8 @@ import org.jline.terminal.TerminalBuilder;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.List;
+
+import static org.apache.commons.lang3.StringUtils.upperCase;
 
 public class NetworkSelector {
     private final Terminal terminal;
@@ -27,7 +30,7 @@ public class NetworkSelector {
         }
 
         PrintWriter out = terminal.writer();
-        out.println(ConsoleOutput.green("Select deposit network for " + exchange + " " + asset + " (use arrows, Enter to confirm):"));
+        out.println(ConsoleOutput.green("Select network for " + upperCase(exchange)  + " " + upperCase(asset) + " (use arrows, Enter to confirm):"));
         out.flush();
 
         int selected = 0;
