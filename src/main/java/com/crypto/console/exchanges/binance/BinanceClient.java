@@ -138,7 +138,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         if (StringUtils.isNotBlank(network)) {
             query.append("&network=").append(normalizeDepositNetwork(network));
         }
-        query.append("&walletType=1");//ommit we want to work wit SPOT
+        //query.append("&walletType=1");//ommit we want to work wit SPOT
         if (StringUtils.isNotBlank(memoOrNull)) {
             query.append("&addressTag=").append(memoOrNull);
         }
@@ -363,14 +363,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
             throw new ExchangeException("Missing API credentials for binance");
         }
 
-        // 1) Move funds from Funding to Spot.
-        if (side == OrderSide.BUY) {
-            transferFundingToSpot(apiKey, apiSecret, quote, amount);
-        } else {
-            transferFundingToSpot(apiKey, apiSecret, base, amount);
-        }
-
-        // 2) Resolve symbol and place market order.
+        // 1) Resolve symbol and place market order.
         String symbol = resolveSymbol(base, quote);
         if (symbol == null) {
             throw new ExchangeException("Invalid symbol: " + (base + quote).toUpperCase() + ". Check base/quote assets.");
@@ -433,7 +426,7 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
         String status = orderResp.hasNonNull("status") ? orderResp.get("status").asText() : "NEW";
         BigDecimal executedQty = toDecimal(orderResp.get("executedQty"));
 
-        // 3) Wait until filled.
+        // 2) Wait until filled.
         if (!"FILLED".equalsIgnoreCase(status)) {
             OrderStatusResult finalStatus = pollOrderStatus(apiKey, apiSecret, symbol, orderId);
             status = finalStatus.status;
@@ -448,19 +441,9 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
             if (executedQty.signum() <= 0) {
                 throw new ExchangeException("Order filled but executed quantity is zero");
             }
-            // 4) Move bought base asset from Spot to Funding (use actual spot free balance).
-            BigDecimal spotFree = getSpotFreeBalance(apiKey, apiSecret, base);
-            if (spotFree.signum() > 0) {
-                transferSpotToFunding(apiKey, apiSecret, base, spotFree);
-            }
             return new OrderResult(String.valueOf(orderId), status, "filledQty=" + executedQty);
         }
 
-        // 4) Move quote asset from Spot to Funding (use actual spot free balance).
-        BigDecimal spotFreeQuote = getSpotFreeBalance(apiKey, apiSecret, quote);
-        if (spotFreeQuote.signum() > 0) {
-            transferSpotToFunding(apiKey, apiSecret, quote, spotFreeQuote);
-        }
         return new OrderResult(String.valueOf(orderId), status, "filled");
     }
 
