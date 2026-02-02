@@ -25,6 +25,7 @@ import java.net.URLEncoder;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -33,6 +34,7 @@ import java.util.*;
 public class HtxClient extends BaseExchangeClient implements DepositNetworkProvider, DepositAddressProvider, DepositNetworkNormalizer {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss").withZone(ZoneOffset.UTC);
+    private static final DateTimeFormatter HUOBI_TS_FORMAT = DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ss").withZone(ZoneId.of("Z"));
     private volatile String cachedSpotAccountId;
     private volatile long timeOffsetMillis;
     private volatile long lastTimeSyncMillis;
@@ -261,13 +263,9 @@ public class HtxClient extends BaseExchangeClient implements DepositNetworkProvi
             throw new ExchangeException("Missing API credentials for htx");
         }
 
-        Map<String, String> params = new LinkedHashMap<>();
-        params.put("currency", asset.toLowerCase());
-        JsonNode response = signedGetAuthOnly("/v2/account/deposit/address", params, apiKey, apiSecret);
-        if (isSignatureError(response)) {
-            // Fallback to full-parameter signing if auth-only fails on this endpoint.
-            response = signedGet("/v2/account/deposit/address", params, apiKey, apiSecret);
-        }
+        String uri = buildHuobiSignedGet("/v2/account/deposit/address", "currency", asset.toLowerCase(), apiKey, apiSecret);
+        LOG.info("htx GET {}", LogSanitizer.sanitize(uri));
+        JsonNode response = getJson(webClient, uri, false, null, getHost());
         JsonNode data = extractData(response, "deposit address");
         if (!data.isArray()) {
             return null;
@@ -660,7 +658,8 @@ public class HtxClient extends BaseExchangeClient implements DepositNetworkProvi
             } else {
                 var request = client.get()
                         .uri(uri)
-                        .header(HttpHeaders.USER_AGENT, "crypto-console");
+                        .header(HttpHeaders.USER_AGENT, "crypto-console")
+                        .header(HttpHeaders.CONTENT_TYPE, "application/x-www-form-urlencoded");
                 if (StringUtils.isNotBlank(hostHeader)) {
                     request = request.header(HttpHeaders.HOST, hostHeader);
                 }
@@ -773,6 +772,17 @@ public class HtxClient extends BaseExchangeClient implements DepositNetworkProvi
         return path + "?" + encodedQuery + "&Signature=" + encodeQuery(signature);
     }
 
+    private String buildHuobiSignedGet(String path, String paramKey, String paramValue, String apiKey, String apiSecret) {
+        HuobiUrlParamsBuilder builder = HuobiUrlParamsBuilder.build();
+        if (StringUtils.isNotBlank(paramKey) && StringUtils.isNotBlank(paramValue)) {
+            builder.putToUrl(paramKey, paramValue);
+        }
+        new HuobiApiSignature().createSignature(apiKey, apiSecret, "GET", getHost(), path, builder);
+        String canonicalQuery = builder.buildSignature();
+        LOG.info("htx signString=\n{}", sanitizeCanonical("GET", getHost(), path, canonicalQuery));
+        return path + builder.buildUrl();
+    }
+
     private String buildSignedUriAuthOnly(String method, String path, Map<String, String> params, String apiKey, String apiSecret,
                                           String hostOverride) {
         Map<String, String> signedParams = new TreeMap<>();
@@ -828,6 +838,14 @@ public class HtxClient extends BaseExchangeClient implements DepositNetworkProvi
         try {
             String host = StringUtils.isNotBlank(hostOverride) ? hostOverride : getHost();
             String payload = method.toUpperCase() + "\n" + host + "\n" + path + "\n" + query;
+            return hmacSha256Base64(payload, secret);
+        } catch (Exception e) {
+            throw new ExchangeException("Failed to sign HTX request", e);
+        }
+    }
+
+    private static String hmacSha256Base64(String payload, String secret) {
+        try {
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
             byte[] raw = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
@@ -851,6 +869,90 @@ public class HtxClient extends BaseExchangeClient implements DepositNetworkProvi
                     .append(encodeQuery(entry.getValue()));
         }
         return sb.toString();
+    }
+
+    private String buildUrlQuery(Map<String, String> params) {
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            if (entry.getValue() == null) {
+                continue;
+            }
+            if (!sb.isEmpty()) {
+                sb.append("&");
+            }
+            sb.append(encodeQuery(entry.getKey()))
+                    .append("=")
+                    .append(encodeQuery(entry.getValue()));
+        }
+        return sb.toString();
+    }
+
+    private static final class HuobiApiSignature {
+        private static final String ACCESS_KEY_ID = "AccessKeyId";
+        private static final String SIGNATURE_METHOD = "SignatureMethod";
+        private static final String SIGNATURE_METHOD_VALUE = "HmacSHA256";
+        private static final String SIGNATURE_VERSION = "SignatureVersion";
+        private static final String SIGNATURE_VERSION_VALUE = "2";
+        private static final String TIMESTAMP = "Timestamp";
+        private static final String SIGNATURE = "Signature";
+
+        public void createSignature(String accessKey, String secretKey, String method, String host,
+                                    String uri, HuobiUrlParamsBuilder builder) {
+            if (StringUtils.isBlank(accessKey) || StringUtils.isBlank(secretKey)) {
+                throw new ExchangeException("API key and secret key are required");
+            }
+            builder.putToUrl(ACCESS_KEY_ID, accessKey)
+                    .putToUrl(SIGNATURE_VERSION, SIGNATURE_VERSION_VALUE)
+                    .putToUrl(SIGNATURE_METHOD, SIGNATURE_METHOD_VALUE)
+                    .putToUrl(TIMESTAMP, HUOBI_TS_FORMAT.format(Instant.now()));
+
+            StringBuilder sb = new StringBuilder(256);
+            sb.append(method.toUpperCase()).append('\n')
+                    .append(host.toLowerCase()).append('\n')
+                    .append(uri).append('\n')
+                    .append(builder.buildSignature());
+
+            String actualSign = hmacSha256Base64(sb.toString(), secretKey);
+            builder.putToUrl(SIGNATURE, actualSign);
+        }
+    }
+
+    private static final class HuobiUrlParamsBuilder {
+        private final Map<String, String> paramsMap = new LinkedHashMap<>();
+
+        static HuobiUrlParamsBuilder build() {
+            return new HuobiUrlParamsBuilder();
+        }
+
+        HuobiUrlParamsBuilder putToUrl(String name, String value) {
+            if (StringUtils.isBlank(name) || StringUtils.isBlank(value)) {
+                return this;
+            }
+            paramsMap.put(name, value);
+            return this;
+        }
+
+        String buildUrl() {
+            StringBuilder head = new StringBuilder("?");
+            return appendUrl(new LinkedHashMap<>(paramsMap), head);
+        }
+
+        String buildSignature() {
+            StringBuilder head = new StringBuilder();
+            return appendUrl(new TreeMap<>(paramsMap), head);
+        }
+
+        private String appendUrl(Map<String, String> map, StringBuilder sb) {
+            for (Map.Entry<String, String> entry : map.entrySet()) {
+                if (!sb.toString().isEmpty()) {
+                    sb.append("&");
+                }
+                sb.append(entry.getKey())
+                        .append("=")
+                        .append(rfc3986(entry.getValue()));
+            }
+            return sb.toString();
+        }
     }
 
     private String buildRawQueryString(Map<String, String> params) {
@@ -880,7 +982,7 @@ public class HtxClient extends BaseExchangeClient implements DepositNetworkProvi
 
     private static String rfc3986(String value) {
         String enc = URLEncoder.encode(value, StandardCharsets.UTF_8);
-        return enc.replace("+", "%20").replace("*", "%2A").replace("%7E", "~");
+        return enc.replace("+", "%20");
     }
 
     private String getHost() {
