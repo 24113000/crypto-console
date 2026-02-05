@@ -16,11 +16,14 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.HttpHeaders;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.net.URLEncoder;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.crypto.Mac;
@@ -81,6 +84,78 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
     @Override
     public OrderBook getOrderBook(String base, String quote, int depth) {
         throw notImplemented("GET /api/v3/depth (public)");
+    }
+
+    @Override
+    public BuyInfoResult buyInfo(String base, String quote, BigDecimal quoteAmount) {
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        if (quoteAmount == null || quoteAmount.signum() <= 0) {
+            throw new ExchangeException("Quote amount must be positive");
+        }
+
+        String symbol = resolveSymbol(base, quote);
+        if (symbol == null) {
+            throw new ExchangeException("Invalid symbol: " + (base + quote).toUpperCase() + ". Check base/quote assets.");
+        }
+
+        String uri = "/api/v3/depth?symbol=" + symbol + "&limit=1000";
+        LOG.info("mexc GET {}", LogSanitizer.sanitize(uri));
+        JsonNode response = webClient.get()
+                .uri(uri)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
+
+        if (response == null || response.get("asks") == null || !response.get("asks").isArray()) {
+            throw new ExchangeException("Unexpected response from MEXC depth API");
+        }
+
+        BigDecimal remainingQuote = quoteAmount;
+        BigDecimal spentQuote = BigDecimal.ZERO;
+        BigDecimal boughtBase = BigDecimal.ZERO;
+        List<BuyInfoItem> affectedItems = new ArrayList<>();
+
+        for (JsonNode ask : response.get("asks")) {
+            if (ask == null || !ask.isArray() || ask.size() < 2) {
+                continue;
+            }
+            BigDecimal price = toDecimal(ask.get(0));
+            BigDecimal quantity = toDecimal(ask.get(1));
+            if (price.signum() <= 0 || quantity.signum() <= 0) {
+                continue;
+            }
+
+            BigDecimal levelQuoteCost = price.multiply(quantity);
+            if (remainingQuote.compareTo(levelQuoteCost) >= 0) {
+                boughtBase = boughtBase.add(quantity);
+                spentQuote = spentQuote.add(levelQuoteCost);
+                affectedItems.add(new BuyInfoItem(price, quantity, levelQuoteCost));
+                remainingQuote = remainingQuote.subtract(levelQuoteCost);
+            } else {
+                BigDecimal partialQty = remainingQuote.divide(price, 18, RoundingMode.DOWN);
+                if (partialQty.signum() > 0) {
+                    BigDecimal partialCost = partialQty.multiply(price);
+                    boughtBase = boughtBase.add(partialQty);
+                    spentQuote = spentQuote.add(partialCost);
+                    affectedItems.add(new BuyInfoItem(price, partialQty, partialCost));
+                }
+                remainingQuote = BigDecimal.ZERO;
+                break;
+            }
+            if (remainingQuote.signum() == 0) {
+                break;
+            }
+        }
+
+        if (boughtBase.signum() <= 0) {
+            throw new ExchangeException("No ask liquidity available for " + symbol);
+        }
+
+        BigDecimal averagePrice = spentQuote.divide(boughtBase, 18, RoundingMode.HALF_UP);
+        return new BuyInfoResult(symbol, quoteAmount, spentQuote, boughtBase, averagePrice, List.copyOf(affectedItems));
     }
 
     @Override
@@ -487,6 +562,46 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
         } catch (Exception ignored) {
         }
         return System.currentTimeMillis();
+    }
+
+    private String resolveSymbol(String base, String quote) {
+        String candidate = (base + quote).toUpperCase();
+        LOG.info("mexc GET {}", LogSanitizer.sanitize("/api/v3/exchangeInfo?symbol=" + candidate));
+        JsonNode direct = webClient.get()
+                .uri("/api/v3/exchangeInfo?symbol=" + candidate)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .onErrorResume(e -> reactor.core.publisher.Mono.empty())
+                .block();
+        if (direct != null && direct.has("symbols") && direct.get("symbols").isArray()) {
+            JsonNode first = direct.get("symbols").size() > 0 ? direct.get("symbols").get(0) : null;
+            if (first != null && first.hasNonNull("symbol")) {
+                return first.get("symbol").asText();
+            }
+        }
+
+        LOG.info("mexc GET /api/v3/exchangeInfo");
+        JsonNode full = webClient.get()
+                .uri("/api/v3/exchangeInfo")
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .onErrorResume(e -> reactor.core.publisher.Mono.empty())
+                .block();
+        if (full == null || !full.has("symbols") || !full.get("symbols").isArray()) {
+            return null;
+        }
+        for (JsonNode symbolNode : full.get("symbols")) {
+            String baseAsset = symbolNode.hasNonNull("baseAsset") ? symbolNode.get("baseAsset").asText() : null;
+            String quoteAsset = symbolNode.hasNonNull("quoteAsset") ? symbolNode.get("quoteAsset").asText() : null;
+            if (baseAsset != null && quoteAsset != null
+                    && baseAsset.equalsIgnoreCase(base)
+                    && quoteAsset.equalsIgnoreCase(quote)) {
+                return symbolNode.get("symbol").asText();
+            }
+        }
+        return null;
     }
 
     private BigDecimal toDecimal(JsonNode node) {

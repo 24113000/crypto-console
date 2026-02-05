@@ -13,6 +13,8 @@ public interface ExchangeClient {
 
     OrderBook getOrderBook(String base, String quote, int depth);
 
+    BuyInfoResult buyInfo(String base, String quote, BigDecimal quoteAmount);
+
     OrderResult marketBuy(String base, String quote, BigDecimal quoteAmount);
 
     OrderResult marketSell(String base, String quote, BigDecimal baseAmount);

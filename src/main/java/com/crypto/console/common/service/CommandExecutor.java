@@ -4,6 +4,7 @@ import com.crypto.console.common.command.Command;
 import com.crypto.console.common.command.impl.AddressCommand;
 import com.crypto.console.common.command.impl.BalanceCommand;
 import com.crypto.console.common.command.impl.BuyCommand;
+import com.crypto.console.common.command.impl.BuyInfoCommand;
 import com.crypto.console.common.command.impl.DepositCommand;
 import com.crypto.console.common.command.impl.InvalidCommand;
 import com.crypto.console.common.command.impl.MoveCommand;
@@ -15,6 +16,7 @@ import com.crypto.console.common.exchange.impl.ExchangeRegistry;
 import com.crypto.console.common.model.Balance;
 import com.crypto.console.common.model.CommandResult;
 import com.crypto.console.common.model.ExchangeException;
+import com.crypto.console.common.model.BuyInfoResult;
 import com.crypto.console.common.model.OrderBook;
 import com.crypto.console.common.model.OrderBookEntry;
 import com.crypto.console.common.model.OrderResult;
@@ -45,6 +47,7 @@ public class CommandExecutor {
                 case BALANCE -> handleBalance((BalanceCommand) command);
                 case ORDERBOOK -> handleOrderBook((OrderBookCommand) command);
                 case BUY -> handleBuy((BuyCommand) command);
+                case BUYINFO -> handleBuyInfo((BuyInfoCommand) command);
                 case SELL -> handleSell((SellCommand) command);
                 case MOVE -> handleMove((MoveCommand) command);
                 case DEPOSIT -> handleDeposit((DepositCommand) command);
@@ -102,6 +105,37 @@ public class CommandExecutor {
         }
         OrderResult result = client.marketBuy(cmd.baseAsset, cmd.quoteAsset, cmd.quoteAmount);
         String message = "BUY placed on " + client.name() + ": " + result.status + " id=" + result.orderId;
+        logSuccess(message);
+        return CommandResult.success(message);
+    }
+
+    private CommandResult handleBuyInfo(BuyInfoCommand cmd) {
+        ExchangeClient client = registry.getClient(cmd.exchange);
+        BuyInfoResult result = client.buyInfo(cmd.baseAsset, cmd.quoteAsset, cmd.quoteAmount);
+        String message = "BUYINFO " + client.name()
+                + " " + result.symbol
+                + ": for " + result.requestedQuoteAmount + " " + cmd.quoteAsset
+                + " -> buy " + result.boughtBaseAmount + " " + cmd.baseAsset
+                + ", avg price " + result.averagePrice + " " + cmd.quoteAsset;
+        if (result.affectedOrderBookItems != null && !result.affectedOrderBookItems.isEmpty()) {
+            StringBuilder sb = new StringBuilder(message);
+            sb.append("\nAffected asks:");
+            for (var item : result.affectedOrderBookItems) {
+                sb.append("\n")
+                        .append("price ")
+                        .append(item.price)
+                        .append(": ")
+                        .append(item.filledBaseAmount)
+                        .append(" ")
+                        .append(cmd.baseAsset)
+                        .append(" - ")
+                        .append(item.spentQuoteAmount)
+                        .append(" ")
+                        .append(cmd.quoteAsset)
+                        .append(" (level cost)");
+            }
+            message = sb.toString();
+        }
         logSuccess(message);
         return CommandResult.success(message);
     }
@@ -167,6 +201,7 @@ public class CommandExecutor {
                 "Commands:",
                 "  move <from> <to> <amount> <asset>",
                 "  buy <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
+                "  buyinfo [exchange] <baseAsset> <quoteAmount> <quoteAsset>",
                 "  sell <exchange> <baseAsset> <baseAmount> <quoteAsset>",
                 "  balance <exchange> <asset>",
                 "  deposit <exchange> <asset>",

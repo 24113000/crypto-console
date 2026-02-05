@@ -5,9 +5,12 @@ import com.crypto.console.common.properties.AppProperties;
 import com.crypto.console.common.properties.SecretsProperties;
 import com.crypto.console.common.model.ExchangeCapabilities;
 import com.crypto.console.common.model.ExchangeException;
+import com.crypto.console.common.model.BuyInfoResult;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.ExchangeStrategies;
+
+import java.math.BigDecimal;
 
 public abstract class BaseExchangeClient implements ExchangeClient {
     protected final String name;
@@ -36,6 +39,11 @@ public abstract class BaseExchangeClient implements ExchangeClient {
         return name;
     }
 
+    @Override
+    public BuyInfoResult buyInfo(String base, String quote, BigDecimal quoteAmount) {
+        throw notImplemented("buy info from order book");
+    }
+
     protected ExchangeException notImplemented(String endpointNote) {
         return new ExchangeException("Not implemented yet: verify endpoint for " + name + " - " + endpointNote);
     }
@@ -45,4 +53,3 @@ public abstract class BaseExchangeClient implements ExchangeClient {
         return new ExchangeCapabilities(false, false, false, false, false, false, false);
     }
 }
-
