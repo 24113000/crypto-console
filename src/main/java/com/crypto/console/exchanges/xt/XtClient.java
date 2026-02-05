@@ -148,6 +148,80 @@ public class XtClient extends BaseExchangeClient implements DepositNetworkProvid
     }
 
     @Override
+    public BuyInfoResult sellInfo(String base, String quote, BigDecimal quoteAmount) {
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        if (quoteAmount == null || quoteAmount.signum() <= 0) {
+            throw new ExchangeException("Quote amount must be positive");
+        }
+
+        String symbol = (base + "_" + quote).toLowerCase();
+        SymbolInfo symbolInfo = getSymbolInfo(symbol);
+        if (symbolInfo == null) {
+            throw new ExchangeException("Invalid symbol: " + symbol);
+        }
+        String resolvedSymbol = StringUtils.isNotBlank(symbolInfo.symbol) ? symbolInfo.symbol : symbol;
+        if (!symbolInfo.tradingEnabled) {
+            throw new ExchangeException("XT symbol not tradable: " + resolvedSymbol);
+        }
+
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("symbol", resolvedSymbol);
+        params.put("limit", "200");
+        String uri = "/v4/public/depth?" + buildQueryString(params);
+        JsonNode response = publicGet(uri);
+        JsonNode result = requireOk(response, "order book").path("result");
+        JsonNode bids = result.get("bids");
+        if (bids == null || !bids.isArray()) {
+            throw new ExchangeException("Unexpected response from XT order book API");
+        }
+
+        BigDecimal remainingQuote = quoteAmount;
+        BigDecimal receivedQuote = BigDecimal.ZERO;
+        BigDecimal soldBase = BigDecimal.ZERO;
+        List<BuyInfoItem> affectedItems = new ArrayList<>();
+
+        for (JsonNode bid : bids) {
+            if (bid == null || !bid.isArray() || bid.size() < 2) {
+                continue;
+            }
+            BigDecimal price = toDecimal(bid.get(0));
+            BigDecimal quantity = toDecimal(bid.get(1));
+            if (price.signum() <= 0 || quantity.signum() <= 0) {
+                continue;
+            }
+            BigDecimal levelQuoteValue = price.multiply(quantity);
+            if (remainingQuote.compareTo(levelQuoteValue) >= 0) {
+                soldBase = soldBase.add(quantity);
+                receivedQuote = receivedQuote.add(levelQuoteValue);
+                affectedItems.add(new BuyInfoItem(price, quantity, levelQuoteValue));
+                remainingQuote = remainingQuote.subtract(levelQuoteValue);
+            } else {
+                BigDecimal partialQty = remainingQuote.divide(price, 18, RoundingMode.DOWN);
+                if (partialQty.signum() > 0) {
+                    BigDecimal partialValue = partialQty.multiply(price);
+                    soldBase = soldBase.add(partialQty);
+                    receivedQuote = receivedQuote.add(partialValue);
+                    affectedItems.add(new BuyInfoItem(price, partialQty, partialValue));
+                }
+                remainingQuote = BigDecimal.ZERO;
+                break;
+            }
+            if (remainingQuote.signum() == 0) {
+                break;
+            }
+        }
+
+        if (soldBase.signum() <= 0) {
+            throw new ExchangeException("No bid liquidity available for " + resolvedSymbol);
+        }
+
+        BigDecimal averagePrice = receivedQuote.divide(soldBase, 18, RoundingMode.HALF_UP);
+        return new BuyInfoResult(resolvedSymbol.toUpperCase(), quoteAmount, receivedQuote, soldBase, averagePrice, List.copyOf(affectedItems));
+    }
+
+    @Override
     public OrderResult marketBuy(String base, String quote, BigDecimal quoteAmount) {
         if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
             throw new ExchangeException("Base and quote assets are required");

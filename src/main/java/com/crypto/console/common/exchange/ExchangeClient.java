@@ -15,6 +15,8 @@ public interface ExchangeClient {
 
     BuyInfoResult buyInfo(String base, String quote, BigDecimal quoteAmount);
 
+    BuyInfoResult sellInfo(String base, String quote, BigDecimal quoteAmount);
+
     OrderResult marketBuy(String base, String quote, BigDecimal quoteAmount);
 
     OrderResult marketSell(String base, String quote, BigDecimal baseAmount);

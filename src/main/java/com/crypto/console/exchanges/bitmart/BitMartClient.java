@@ -148,6 +148,84 @@ public class BitMartClient extends BaseExchangeClient implements DepositNetworkP
     }
 
     @Override
+    public BuyInfoResult sellInfo(String base, String quote, BigDecimal quoteAmount) {
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        if (quoteAmount == null || quoteAmount.signum() <= 0) {
+            throw new ExchangeException("Quote amount must be positive");
+        }
+
+        String symbol = (base + "_" + quote).toUpperCase();
+        getSymbolInfo(symbol);
+
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("symbol", symbol);
+        params.put("limit", "200");
+        String uri = "/spot/quotation/v3/books?" + buildQueryString(params);
+        JsonNode response = getJson(uri, null);
+        JsonNode ok = requireOk(response, "order book");
+        JsonNode data = ok.get("data");
+        JsonNode bids = resolveBidsNode(data);
+        if (bids == null || !bids.isArray()) {
+            throw new ExchangeException("Unexpected response from BitMart order book API");
+        }
+
+        BigDecimal remainingQuote = quoteAmount;
+        BigDecimal receivedQuote = BigDecimal.ZERO;
+        BigDecimal soldBase = BigDecimal.ZERO;
+        List<BuyInfoItem> affectedItems = new ArrayList<>();
+
+        for (JsonNode bid : bids) {
+            BigDecimal price;
+            BigDecimal quantity;
+            if (bid == null) {
+                continue;
+            }
+            if (bid.isArray() && bid.size() >= 2) {
+                price = toDecimal(bid.get(0));
+                quantity = toDecimal(bid.get(1));
+            } else if (bid.isObject()) {
+                price = firstDecimal(bid, "price", "p");
+                quantity = firstDecimal(bid, "size", "quantity", "qty", "amount", "q");
+            } else {
+                continue;
+            }
+            if (price.signum() <= 0 || quantity.signum() <= 0) {
+                continue;
+            }
+
+            BigDecimal levelQuoteValue = price.multiply(quantity);
+            if (remainingQuote.compareTo(levelQuoteValue) >= 0) {
+                soldBase = soldBase.add(quantity);
+                receivedQuote = receivedQuote.add(levelQuoteValue);
+                affectedItems.add(new BuyInfoItem(price, quantity, levelQuoteValue));
+                remainingQuote = remainingQuote.subtract(levelQuoteValue);
+            } else {
+                BigDecimal partialQty = remainingQuote.divide(price, 18, RoundingMode.DOWN);
+                if (partialQty.signum() > 0) {
+                    BigDecimal partialValue = partialQty.multiply(price);
+                    soldBase = soldBase.add(partialQty);
+                    receivedQuote = receivedQuote.add(partialValue);
+                    affectedItems.add(new BuyInfoItem(price, partialQty, partialValue));
+                }
+                remainingQuote = BigDecimal.ZERO;
+                break;
+            }
+            if (remainingQuote.signum() == 0) {
+                break;
+            }
+        }
+
+        if (soldBase.signum() <= 0) {
+            throw new ExchangeException("No bid liquidity available for " + symbol);
+        }
+
+        BigDecimal averagePrice = receivedQuote.divide(soldBase, 18, RoundingMode.HALF_UP);
+        return new BuyInfoResult(symbol, quoteAmount, receivedQuote, soldBase, averagePrice, List.copyOf(affectedItems));
+    }
+
+    @Override
     public OrderResult marketBuy(String base, String quote, BigDecimal quoteAmount) {
         if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
             throw new ExchangeException("Base and quote assets are required");
@@ -678,6 +756,22 @@ public class BitMartClient extends BaseExchangeClient implements DepositNetworkP
         }
         if (data.has("ask")) {
             return data.get("ask");
+        }
+        return null;
+    }
+
+    private JsonNode resolveBidsNode(JsonNode data) {
+        if (data == null) {
+            return null;
+        }
+        if (data.has("bids")) {
+            return data.get("bids");
+        }
+        if (data.has("buys")) {
+            return data.get("buys");
+        }
+        if (data.has("bid")) {
+            return data.get("bid");
         }
         return null;
     }

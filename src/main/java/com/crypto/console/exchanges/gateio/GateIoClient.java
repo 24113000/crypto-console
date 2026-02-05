@@ -144,6 +144,76 @@ public class GateIoClient extends BaseExchangeClient implements DepositNetworkPr
     }
 
     @Override
+    public BuyInfoResult sellInfo(String base, String quote, BigDecimal quoteAmount) {
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        if (quoteAmount == null || quoteAmount.signum() <= 0) {
+            throw new ExchangeException("Quote amount must be positive");
+        }
+
+        String currencyPair = (base + "_" + quote).toUpperCase();
+        CurrencyPairInfo info = getCurrencyPairInfo(currencyPair);
+        if (info == null) {
+            throw new ExchangeException("Invalid symbol: " + currencyPair);
+        }
+        if (!info.tradable) {
+            throw new ExchangeException("Gate.io symbol not tradable: " + currencyPair);
+        }
+
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("currency_pair", currencyPair);
+        params.put("limit", "200");
+        JsonNode response = publicGet("/spot/order_book", params);
+        if (response == null || response.get("bids") == null || !response.get("bids").isArray()) {
+            throw new ExchangeException("Unexpected response from Gate.io order book API");
+        }
+
+        BigDecimal remainingQuote = quoteAmount;
+        BigDecimal receivedQuote = BigDecimal.ZERO;
+        BigDecimal soldBase = BigDecimal.ZERO;
+        List<BuyInfoItem> affectedItems = new ArrayList<>();
+
+        for (JsonNode bid : response.get("bids")) {
+            if (bid == null || !bid.isArray() || bid.size() < 2) {
+                continue;
+            }
+            BigDecimal price = toDecimal(bid.get(0));
+            BigDecimal quantity = toDecimal(bid.get(1));
+            if (price.signum() <= 0 || quantity.signum() <= 0) {
+                continue;
+            }
+            BigDecimal levelQuoteValue = price.multiply(quantity);
+            if (remainingQuote.compareTo(levelQuoteValue) >= 0) {
+                soldBase = soldBase.add(quantity);
+                receivedQuote = receivedQuote.add(levelQuoteValue);
+                affectedItems.add(new BuyInfoItem(price, quantity, levelQuoteValue));
+                remainingQuote = remainingQuote.subtract(levelQuoteValue);
+            } else {
+                BigDecimal partialQty = remainingQuote.divide(price, 18, RoundingMode.DOWN);
+                if (partialQty.signum() > 0) {
+                    BigDecimal partialValue = partialQty.multiply(price);
+                    soldBase = soldBase.add(partialQty);
+                    receivedQuote = receivedQuote.add(partialValue);
+                    affectedItems.add(new BuyInfoItem(price, partialQty, partialValue));
+                }
+                remainingQuote = BigDecimal.ZERO;
+                break;
+            }
+            if (remainingQuote.signum() == 0) {
+                break;
+            }
+        }
+
+        if (soldBase.signum() <= 0) {
+            throw new ExchangeException("No bid liquidity available for " + currencyPair);
+        }
+
+        BigDecimal averagePrice = receivedQuote.divide(soldBase, 18, RoundingMode.HALF_UP);
+        return new BuyInfoResult(currencyPair, quoteAmount, receivedQuote, soldBase, averagePrice, List.copyOf(affectedItems));
+    }
+
+    @Override
     public OrderResult marketBuy(String base, String quote, BigDecimal quoteAmount) {
         if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
             throw new ExchangeException("Base and quote assets are required");
@@ -695,4 +765,3 @@ public class GateIoClient extends BaseExchangeClient implements DepositNetworkPr
     private record ChainInfo(String chain, boolean depositEnabled, boolean withdrawEnabled) {
     }
 }
-

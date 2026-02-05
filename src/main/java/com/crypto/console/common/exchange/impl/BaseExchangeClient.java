@@ -44,6 +44,11 @@ public abstract class BaseExchangeClient implements ExchangeClient {
         throw notImplemented("buy info from order book");
     }
 
+    @Override
+    public BuyInfoResult sellInfo(String base, String quote, BigDecimal quoteAmount) {
+        throw notImplemented("sell info from order book");
+    }
+
     protected ExchangeException notImplemented(String endpointNote) {
         return new ExchangeException("Not implemented yet: verify endpoint for " + name + " - " + endpointNote);
     }

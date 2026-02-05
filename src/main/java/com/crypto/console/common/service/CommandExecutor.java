@@ -5,6 +5,7 @@ import com.crypto.console.common.command.impl.AddressCommand;
 import com.crypto.console.common.command.impl.BalanceCommand;
 import com.crypto.console.common.command.impl.BuyCommand;
 import com.crypto.console.common.command.impl.BuyInfoCommand;
+import com.crypto.console.common.command.impl.SellInfoCommand;
 import com.crypto.console.common.command.impl.DepositCommand;
 import com.crypto.console.common.command.impl.InvalidCommand;
 import com.crypto.console.common.command.impl.MoveCommand;
@@ -48,6 +49,7 @@ public class CommandExecutor {
                 case ORDERBOOK -> handleOrderBook((OrderBookCommand) command);
                 case BUY -> handleBuy((BuyCommand) command);
                 case BUYINFO -> handleBuyInfo((BuyInfoCommand) command);
+                case SELLINFO -> handleSellInfo((SellInfoCommand) command);
                 case SELL -> handleSell((SellCommand) command);
                 case MOVE -> handleMove((MoveCommand) command);
                 case DEPOSIT -> handleDeposit((DepositCommand) command);
@@ -152,6 +154,37 @@ public class CommandExecutor {
         return CommandResult.success(message);
     }
 
+    private CommandResult handleSellInfo(SellInfoCommand cmd) {
+        ExchangeClient client = registry.getClient(cmd.exchange);
+        BuyInfoResult result = client.sellInfo(cmd.baseAsset, cmd.quoteAsset, cmd.quoteAmount);
+        String message = "SELLINFO " + client.name()
+                + " " + result.symbol
+                + ": for " + result.requestedQuoteAmount + " " + cmd.quoteAsset
+                + " -> sell " + result.boughtBaseAmount + " " + cmd.baseAsset
+                + ", avg price " + result.averagePrice + " " + cmd.quoteAsset;
+        if (result.affectedOrderBookItems != null && !result.affectedOrderBookItems.isEmpty()) {
+            StringBuilder sb = new StringBuilder(message);
+            sb.append("\nAffected bids:");
+            for (var item : result.affectedOrderBookItems) {
+                sb.append("\n")
+                        .append("price ")
+                        .append(item.price)
+                        .append(": ")
+                        .append(item.filledBaseAmount)
+                        .append(" ")
+                        .append(cmd.baseAsset)
+                        .append(" - ")
+                        .append(item.spentQuoteAmount)
+                        .append(" ")
+                        .append(cmd.quoteAsset)
+                        .append(" (level proceeds)");
+            }
+            message = sb.toString();
+        }
+        logSuccess(message);
+        return CommandResult.success(message);
+    }
+
     private CommandResult handleMove(MoveCommand cmd) {
         requireSecrets(cmd.from);
         requireSecrets(cmd.to);
@@ -202,6 +235,7 @@ public class CommandExecutor {
                 "  move <from> <to> <amount> <asset>",
                 "  buy <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
                 "  buyinfo <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
+                "  sellinfo <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
                 "  sell <exchange> <baseAsset> <baseAmount> <quoteAsset>",
                 "  balance <exchange> <asset>",
                 "  deposit <exchange> <asset>",

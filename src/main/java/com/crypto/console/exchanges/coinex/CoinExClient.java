@@ -147,6 +147,81 @@ public class CoinExClient extends BaseExchangeClient implements DepositNetworkPr
     }
 
     @Override
+    public BuyInfoResult sellInfo(String base, String quote, BigDecimal quoteAmount) {
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        if (quoteAmount == null || quoteAmount.signum() <= 0) {
+            throw new ExchangeException("Quote amount must be positive");
+        }
+
+        String market = (base + quote).toUpperCase();
+        MarketInfo info = getMarketInfo(market);
+        if (info == null || !info.apiTradingAvailable) {
+            throw new ExchangeException("Invalid symbol or API trading not available: " + market);
+        }
+
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("market", market);
+        params.put("limit", "50");
+        params.put("interval", "0");
+        String uri = "/spot/depth?" + buildQueryString(params);
+        JsonNode response = publicGet(uri);
+        JsonNode data = requireOk(response, "order book").path("data");
+        JsonNode depth = data.get("depth");
+        if (depth == null || depth.isNull()) {
+            depth = data;
+        }
+        JsonNode bids = depth.get("bids");
+        if (bids == null || !bids.isArray()) {
+            throw new ExchangeException("Unexpected response from CoinEx order book API");
+        }
+
+        BigDecimal remainingQuote = quoteAmount;
+        BigDecimal receivedQuote = BigDecimal.ZERO;
+        BigDecimal soldBase = BigDecimal.ZERO;
+        List<BuyInfoItem> affectedItems = new ArrayList<>();
+
+        for (JsonNode bid : bids) {
+            if (bid == null || !bid.isArray() || bid.size() < 2) {
+                continue;
+            }
+            BigDecimal price = toDecimal(bid.get(0));
+            BigDecimal quantity = toDecimal(bid.get(1));
+            if (price.signum() <= 0 || quantity.signum() <= 0) {
+                continue;
+            }
+            BigDecimal levelQuoteValue = price.multiply(quantity);
+            if (remainingQuote.compareTo(levelQuoteValue) >= 0) {
+                soldBase = soldBase.add(quantity);
+                receivedQuote = receivedQuote.add(levelQuoteValue);
+                affectedItems.add(new BuyInfoItem(price, quantity, levelQuoteValue));
+                remainingQuote = remainingQuote.subtract(levelQuoteValue);
+            } else {
+                BigDecimal partialQty = remainingQuote.divide(price, 18, RoundingMode.DOWN);
+                if (partialQty.signum() > 0) {
+                    BigDecimal partialValue = partialQty.multiply(price);
+                    soldBase = soldBase.add(partialQty);
+                    receivedQuote = receivedQuote.add(partialValue);
+                    affectedItems.add(new BuyInfoItem(price, partialQty, partialValue));
+                }
+                remainingQuote = BigDecimal.ZERO;
+                break;
+            }
+            if (remainingQuote.signum() == 0) {
+                break;
+            }
+        }
+
+        if (soldBase.signum() <= 0) {
+            throw new ExchangeException("No bid liquidity available for " + market);
+        }
+
+        BigDecimal averagePrice = receivedQuote.divide(soldBase, 18, RoundingMode.HALF_UP);
+        return new BuyInfoResult(market, quoteAmount, receivedQuote, soldBase, averagePrice, List.copyOf(affectedItems));
+    }
+
+    @Override
     public OrderResult marketBuy(String base, String quote, BigDecimal quoteAmount) {
         if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
             throw new ExchangeException("Base and quote assets are required");
@@ -686,4 +761,3 @@ public class CoinExClient extends BaseExchangeClient implements DepositNetworkPr
     private record ChainConfig(String chain, boolean depositEnabled, boolean withdrawEnabled) {
     }
 }
-

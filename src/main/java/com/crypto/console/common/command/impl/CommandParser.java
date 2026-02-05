@@ -20,6 +20,7 @@ public class CommandParser {
             case "move" -> parseMove(trimmed, parts);
             case "buy" -> parseBuy(trimmed, parts);
             case "buyinfo" -> parseBuyInfo(trimmed, parts);
+            case "sellinfo" -> parseSellInfo(trimmed, parts);
             case "sell" -> parseSell(trimmed, parts);
             case "balance" -> parseBalance(trimmed, parts);
             case "orderbook" -> parseOrderBook(trimmed, parts);
@@ -76,6 +77,20 @@ public class CommandParser {
             return new InvalidCommand(raw, "Base amount must be a positive number");
         }
         return new SellCommand(raw, parts[1].toLowerCase(), parts[2].toUpperCase(), amount, parts[4].toUpperCase());
+    }
+
+    private Command parseSellInfo(String raw, String[] parts) {
+        if (parts.length != 5) {
+            return new InvalidCommand(raw, "Syntax: sellinfo <exchange> <baseAsset> <quoteAmount> <quoteAsset>");
+        }
+        String exchange = parts[1].toLowerCase();
+        String baseAsset = parts[2].toUpperCase();
+        BigDecimal amount = parsePositiveDecimal(parts[3], raw);
+        if (amount == null) {
+            return new InvalidCommand(raw, "Quote amount must be a positive number");
+        }
+        String quoteAsset = parts[4].toUpperCase();
+        return new SellInfoCommand(raw, exchange, baseAsset, amount, quoteAsset);
     }
 
     private Command parseBalance(String raw, String[] parts) {
