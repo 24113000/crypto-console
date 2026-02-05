@@ -237,6 +237,16 @@ public class XtClient extends BaseExchangeClient implements DepositNetworkProvid
         if (symbolInfo == null) {
             throw new ExchangeException("Invalid symbol: " + symbol);
         }
+        String resolvedSymbol = StringUtils.isNotBlank(symbolInfo.symbol) ? symbolInfo.symbol : symbol;
+        if (!symbolInfo.tradingEnabled) {
+            throw new ExchangeException("XT symbol not tradable: " + resolvedSymbol);
+        }
+        if (!symbolInfo.openapiEnabled) {
+            throw new ExchangeException("XT symbol does not support API trading: " + resolvedSymbol);
+        }
+        if (!symbolInfo.orderTypes.contains("MARKET")) {
+            throw new ExchangeException("XT symbol does not support MARKET orders: " + resolvedSymbol);
+        }
 
         if (isQuoteAmount) {
             BigDecimal minQuote = symbolInfo.minQuoteQty;
@@ -250,11 +260,11 @@ public class XtClient extends BaseExchangeClient implements DepositNetworkProvid
             }
             BigDecimal minQuote = symbolInfo.minQuoteQty;
             if (minQuote != null && minQuote.signum() > 0) {
-                BigDecimal price = getLatestPrice(symbol);
+                BigDecimal price = getLatestPrice(resolvedSymbol);
                 if (price != null && price.signum() > 0) {
                     BigDecimal notional = qty.multiply(price);
                     if (notional.compareTo(minQuote) < 0) {
-                        throw new ExchangeException("Order value " + notional + " below min notional " + minQuote + " for " + symbol);
+                        throw new ExchangeException("Order value " + notional + " below min notional " + minQuote + " for " + resolvedSymbol);
                     }
                 }
             }
@@ -262,7 +272,7 @@ public class XtClient extends BaseExchangeClient implements DepositNetworkProvid
         }
 
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("symbol", symbol);
+        body.put("symbol", resolvedSymbol);
         body.put("side", side.name());
         body.put("type", "MARKET");
         body.put("timeInForce", "FOK");
@@ -296,6 +306,18 @@ public class XtClient extends BaseExchangeClient implements DepositNetworkProvid
         if (node == null) {
             return null;
         }
+        boolean tradingEnabled = node.hasNonNull("tradingEnabled") && node.get("tradingEnabled").asBoolean(false);
+        boolean openapiEnabled = node.hasNonNull("openapiEnabled") && node.get("openapiEnabled").asBoolean(false);
+        Set<String> orderTypes = new HashSet<>();
+        JsonNode orderTypesNode = node.get("orderTypes");
+        if (orderTypesNode != null && orderTypesNode.isArray()) {
+            for (JsonNode item : orderTypesNode) {
+                String type = item.asText(null);
+                if (StringUtils.isNotBlank(type)) {
+                    orderTypes.add(type.toUpperCase());
+                }
+            }
+        }
         BigDecimal minQty = null;
         BigDecimal maxQty = null;
         BigDecimal step = null;
@@ -313,7 +335,8 @@ public class XtClient extends BaseExchangeClient implements DepositNetworkProvid
                 }
             }
         }
-        return new SymbolInfo(minQty, maxQty, step, minQuote);
+        String canonicalSymbol = node.hasNonNull("symbol") ? node.get("symbol").asText() : symbol;
+        return new SymbolInfo(canonicalSymbol, tradingEnabled, openapiEnabled, orderTypes, minQty, maxQty, step, minQuote);
     }
 
     private BigDecimal getLatestPrice(String symbol) {
@@ -645,7 +668,8 @@ public class XtClient extends BaseExchangeClient implements DepositNetworkProvid
     private record SignedHeaders(String timestamp, String recvWindow, String signature) {
     }
 
-    private record SymbolInfo(BigDecimal minQty, BigDecimal maxQty, BigDecimal stepSize, BigDecimal minQuoteQty) {
+    private record SymbolInfo(String symbol, boolean tradingEnabled, boolean openapiEnabled, Set<String> orderTypes,
+                              BigDecimal minQty, BigDecimal maxQty, BigDecimal stepSize, BigDecimal minQuoteQty) {
     }
 
     private record SupportedCurrency(String currency, List<SupportChain> supportChains) {

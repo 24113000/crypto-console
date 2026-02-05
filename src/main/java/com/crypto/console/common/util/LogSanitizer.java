@@ -3,7 +3,7 @@ package com.crypto.console.common.util;
 import java.util.regex.Pattern;
 
 public final class LogSanitizer {
-    private static final Pattern SECRET_PATTERN = Pattern.compile("(?i)(apiKey|apiSecret|passphrase|memo|signature|secret)=[^\s]+" );
+    private static final Pattern SECRET_PATTERN = Pattern.compile("(?i)(apiKey|apiSecret|passphrase|memo|signature|sign|secret)=[^\s]+" );
 
     private LogSanitizer() {
     }

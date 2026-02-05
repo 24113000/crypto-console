@@ -11,6 +11,7 @@ public enum ExchangeName {
     KUCOIN("kucoin"),
     GATEIO("gateio"),
     HTX("htx"),
+    LBANK("lbank"),
     EXSTUB1("exstub1"),
     EXSTUB2("exstub2");
 
