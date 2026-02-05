@@ -201,7 +201,7 @@ public class CommandExecutor {
                 "Commands:",
                 "  move <from> <to> <amount> <asset>",
                 "  buy <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
-                "  buyinfo [exchange] <baseAsset> <quoteAmount> <quoteAsset>",
+                "  buyinfo <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
                 "  sell <exchange> <baseAsset> <baseAmount> <quoteAsset>",
                 "  balance <exchange> <asset>",
                 "  deposit <exchange> <asset>",

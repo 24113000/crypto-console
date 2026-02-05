@@ -54,17 +54,16 @@ public class CommandParser {
     }
 
     private Command parseBuyInfo(String raw, String[] parts) {
-        if (parts.length != 4 && parts.length != 5) {
-            return new InvalidCommand(raw, "Syntax: buyinfo [exchange] <baseAsset> <quoteAmount> <quoteAsset>");
+        if (parts.length != 5) {
+            return new InvalidCommand(raw, "Syntax: buyinfo <exchange> <baseAsset> <quoteAmount> <quoteAsset>");
         }
-        int offset = parts.length == 5 ? 0 : -1;
-        String exchange = offset == 0 ? parts[1].toLowerCase() : "binance";
-        String baseAsset = parts[2 + offset].toUpperCase();
-        BigDecimal amount = parsePositiveDecimal(parts[3 + offset], raw);
+        String exchange = parts[1].toLowerCase();
+        String baseAsset = parts[2].toUpperCase();
+        BigDecimal amount = parsePositiveDecimal(parts[3], raw);
         if (amount == null) {
             return new InvalidCommand(raw, "Quote amount must be a positive number");
         }
-        String quoteAsset = parts[4 + offset].toUpperCase();
+        String quoteAsset = parts[4].toUpperCase();
         return new BuyInfoCommand(raw, exchange, baseAsset, amount, quoteAsset);
     }
 
