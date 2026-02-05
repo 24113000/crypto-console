@@ -18,8 +18,10 @@ import org.springframework.http.HttpHeaders;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.*;
 
 @Slf4j
@@ -69,6 +71,80 @@ public class XtClient extends BaseExchangeClient implements DepositNetworkProvid
     @Override
     public OrderBook getOrderBook(String base, String quote, int depth) {
         throw notImplemented("GET /v4/public/depth (public)");
+    }
+
+    @Override
+    public BuyInfoResult buyInfo(String base, String quote, BigDecimal quoteAmount) {
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        if (quoteAmount == null || quoteAmount.signum() <= 0) {
+            throw new ExchangeException("Quote amount must be positive");
+        }
+
+        String symbol = (base + "_" + quote).toLowerCase();
+        SymbolInfo symbolInfo = getSymbolInfo(symbol);
+        if (symbolInfo == null) {
+            throw new ExchangeException("Invalid symbol: " + symbol);
+        }
+        String resolvedSymbol = StringUtils.isNotBlank(symbolInfo.symbol) ? symbolInfo.symbol : symbol;
+        if (!symbolInfo.tradingEnabled) {
+            throw new ExchangeException("XT symbol not tradable: " + resolvedSymbol);
+        }
+
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("symbol", resolvedSymbol);
+        params.put("limit", "200");
+        String uri = "/v4/public/depth?" + buildQueryString(params);
+        JsonNode response = publicGet(uri);
+        JsonNode result = requireOk(response, "order book").path("result");
+        JsonNode asks = result.get("asks");
+        if (asks == null || !asks.isArray()) {
+            throw new ExchangeException("Unexpected response from XT order book API");
+        }
+
+        BigDecimal remainingQuote = quoteAmount;
+        BigDecimal spentQuote = BigDecimal.ZERO;
+        BigDecimal boughtBase = BigDecimal.ZERO;
+        List<BuyInfoItem> affectedItems = new ArrayList<>();
+
+        for (JsonNode ask : asks) {
+            if (ask == null || !ask.isArray() || ask.size() < 2) {
+                continue;
+            }
+            BigDecimal price = toDecimal(ask.get(0));
+            BigDecimal quantity = toDecimal(ask.get(1));
+            if (price.signum() <= 0 || quantity.signum() <= 0) {
+                continue;
+            }
+            BigDecimal levelQuoteCost = price.multiply(quantity);
+            if (remainingQuote.compareTo(levelQuoteCost) >= 0) {
+                boughtBase = boughtBase.add(quantity);
+                spentQuote = spentQuote.add(levelQuoteCost);
+                affectedItems.add(new BuyInfoItem(price, quantity, levelQuoteCost));
+                remainingQuote = remainingQuote.subtract(levelQuoteCost);
+            } else {
+                BigDecimal partialQty = remainingQuote.divide(price, 18, RoundingMode.DOWN);
+                if (partialQty.signum() > 0) {
+                    BigDecimal partialCost = partialQty.multiply(price);
+                    boughtBase = boughtBase.add(partialQty);
+                    spentQuote = spentQuote.add(partialCost);
+                    affectedItems.add(new BuyInfoItem(price, partialQty, partialCost));
+                }
+                remainingQuote = BigDecimal.ZERO;
+                break;
+            }
+            if (remainingQuote.signum() == 0) {
+                break;
+            }
+        }
+
+        if (boughtBase.signum() <= 0) {
+            throw new ExchangeException("No ask liquidity available for " + resolvedSymbol);
+        }
+
+        BigDecimal averagePrice = spentQuote.divide(boughtBase, 18, RoundingMode.HALF_UP);
+        return new BuyInfoResult(resolvedSymbol.toUpperCase(), quoteAmount, spentQuote, boughtBase, averagePrice, List.copyOf(affectedItems));
     }
 
     @Override

@@ -18,8 +18,10 @@ import org.springframework.http.HttpHeaders;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.*;
 
 @Slf4j
@@ -64,6 +66,85 @@ public class BitMartClient extends BaseExchangeClient implements DepositNetworkP
     @Override
     public OrderBook getOrderBook(String base, String quote, int depth) {
         throw notImplemented("GET /spot/quotation/v3/books (public)");
+    }
+
+    @Override
+    public BuyInfoResult buyInfo(String base, String quote, BigDecimal quoteAmount) {
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        if (quoteAmount == null || quoteAmount.signum() <= 0) {
+            throw new ExchangeException("Quote amount must be positive");
+        }
+
+        String symbol = (base + "_" + quote).toUpperCase();
+        // Validate symbol exists.
+        getSymbolInfo(symbol);
+
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("symbol", symbol);
+        params.put("limit", "200");
+        String uri = "/spot/quotation/v3/books?" + buildQueryString(params);
+        JsonNode response = getJson(uri, null);
+        JsonNode ok = requireOk(response, "order book");
+        JsonNode data = ok.get("data");
+        JsonNode asks = resolveAsksNode(data);
+        if (asks == null || !asks.isArray()) {
+            throw new ExchangeException("Unexpected response from BitMart order book API");
+        }
+
+        BigDecimal remainingQuote = quoteAmount;
+        BigDecimal spentQuote = BigDecimal.ZERO;
+        BigDecimal boughtBase = BigDecimal.ZERO;
+        List<BuyInfoItem> affectedItems = new ArrayList<>();
+
+        for (JsonNode ask : asks) {
+            BigDecimal price;
+            BigDecimal quantity;
+            if (ask == null) {
+                continue;
+            }
+            if (ask.isArray() && ask.size() >= 2) {
+                price = toDecimal(ask.get(0));
+                quantity = toDecimal(ask.get(1));
+            } else if (ask.isObject()) {
+                price = firstDecimal(ask, "price", "p");
+                quantity = firstDecimal(ask, "size", "quantity", "qty", "amount", "q");
+            } else {
+                continue;
+            }
+            if (price.signum() <= 0 || quantity.signum() <= 0) {
+                continue;
+            }
+
+            BigDecimal levelQuoteCost = price.multiply(quantity);
+            if (remainingQuote.compareTo(levelQuoteCost) >= 0) {
+                boughtBase = boughtBase.add(quantity);
+                spentQuote = spentQuote.add(levelQuoteCost);
+                affectedItems.add(new BuyInfoItem(price, quantity, levelQuoteCost));
+                remainingQuote = remainingQuote.subtract(levelQuoteCost);
+            } else {
+                BigDecimal partialQty = remainingQuote.divide(price, 18, RoundingMode.DOWN);
+                if (partialQty.signum() > 0) {
+                    BigDecimal partialCost = partialQty.multiply(price);
+                    boughtBase = boughtBase.add(partialQty);
+                    spentQuote = spentQuote.add(partialCost);
+                    affectedItems.add(new BuyInfoItem(price, partialQty, partialCost));
+                }
+                remainingQuote = BigDecimal.ZERO;
+                break;
+            }
+            if (remainingQuote.signum() == 0) {
+                break;
+            }
+        }
+
+        if (boughtBase.signum() <= 0) {
+            throw new ExchangeException("No ask liquidity available for " + symbol);
+        }
+
+        BigDecimal averagePrice = spentQuote.divide(boughtBase, 18, RoundingMode.HALF_UP);
+        return new BuyInfoResult(symbol, quoteAmount, spentQuote, boughtBase, averagePrice, List.copyOf(affectedItems));
     }
 
     @Override
@@ -583,6 +664,35 @@ public class BitMartClient extends BaseExchangeClient implements DepositNetworkP
             return BigDecimal.ZERO;
         }
         return new BigDecimal(text);
+    }
+
+    private JsonNode resolveAsksNode(JsonNode data) {
+        if (data == null) {
+            return null;
+        }
+        if (data.has("asks")) {
+            return data.get("asks");
+        }
+        if (data.has("sells")) {
+            return data.get("sells");
+        }
+        if (data.has("ask")) {
+            return data.get("ask");
+        }
+        return null;
+    }
+
+    private BigDecimal firstDecimal(JsonNode node, String... fields) {
+        if (node == null || fields == null) {
+            return BigDecimal.ZERO;
+        }
+        for (String field : fields) {
+            if (node.has(field)) {
+                BigDecimal value = toDecimal(node.get(field));
+                return value;
+            }
+        }
+        return BigDecimal.ZERO;
     }
 
     private String getApiKey() {

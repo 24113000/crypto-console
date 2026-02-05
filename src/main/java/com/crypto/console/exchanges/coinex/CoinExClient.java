@@ -18,8 +18,10 @@ import org.springframework.http.HttpHeaders;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.*;
 
 @Slf4j
@@ -67,6 +69,81 @@ public class CoinExClient extends BaseExchangeClient implements DepositNetworkPr
     @Override
     public OrderBook getOrderBook(String base, String quote, int depth) {
         throw notImplemented("GET /spot/depth (public)");
+    }
+
+    @Override
+    public BuyInfoResult buyInfo(String base, String quote, BigDecimal quoteAmount) {
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        if (quoteAmount == null || quoteAmount.signum() <= 0) {
+            throw new ExchangeException("Quote amount must be positive");
+        }
+
+        String market = (base + quote).toUpperCase();
+        MarketInfo info = getMarketInfo(market);
+        if (info == null || !info.apiTradingAvailable) {
+            throw new ExchangeException("Invalid symbol or API trading not available: " + market);
+        }
+
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("market", market);
+        params.put("limit", "50");
+        params.put("interval", "0");
+        String uri = "/spot/depth?" + buildQueryString(params);
+        JsonNode response = publicGet(uri);
+        JsonNode data = requireOk(response, "order book").path("data");
+        JsonNode depth = data.get("depth");
+        if (depth == null || depth.isNull()) {
+            depth = data;
+        }
+        JsonNode asks = depth.get("asks");
+        if (asks == null || !asks.isArray()) {
+            throw new ExchangeException("Unexpected response from CoinEx order book API");
+        }
+
+        BigDecimal remainingQuote = quoteAmount;
+        BigDecimal spentQuote = BigDecimal.ZERO;
+        BigDecimal boughtBase = BigDecimal.ZERO;
+        List<BuyInfoItem> affectedItems = new ArrayList<>();
+
+        for (JsonNode ask : asks) {
+            if (ask == null || !ask.isArray() || ask.size() < 2) {
+                continue;
+            }
+            BigDecimal price = toDecimal(ask.get(0));
+            BigDecimal quantity = toDecimal(ask.get(1));
+            if (price.signum() <= 0 || quantity.signum() <= 0) {
+                continue;
+            }
+            BigDecimal levelQuoteCost = price.multiply(quantity);
+            if (remainingQuote.compareTo(levelQuoteCost) >= 0) {
+                boughtBase = boughtBase.add(quantity);
+                spentQuote = spentQuote.add(levelQuoteCost);
+                affectedItems.add(new BuyInfoItem(price, quantity, levelQuoteCost));
+                remainingQuote = remainingQuote.subtract(levelQuoteCost);
+            } else {
+                BigDecimal partialQty = remainingQuote.divide(price, 18, RoundingMode.DOWN);
+                if (partialQty.signum() > 0) {
+                    BigDecimal partialCost = partialQty.multiply(price);
+                    boughtBase = boughtBase.add(partialQty);
+                    spentQuote = spentQuote.add(partialCost);
+                    affectedItems.add(new BuyInfoItem(price, partialQty, partialCost));
+                }
+                remainingQuote = BigDecimal.ZERO;
+                break;
+            }
+            if (remainingQuote.signum() == 0) {
+                break;
+            }
+        }
+
+        if (boughtBase.signum() <= 0) {
+            throw new ExchangeException("No ask liquidity available for " + market);
+        }
+
+        BigDecimal averagePrice = spentQuote.divide(boughtBase, 18, RoundingMode.HALF_UP);
+        return new BuyInfoResult(market, quoteAmount, spentQuote, boughtBase, averagePrice, List.copyOf(affectedItems));
     }
 
     @Override
@@ -609,6 +686,4 @@ public class CoinExClient extends BaseExchangeClient implements DepositNetworkPr
     private record ChainConfig(String chain, boolean depositEnabled, boolean withdrawEnabled) {
     }
 }
-
-
 
