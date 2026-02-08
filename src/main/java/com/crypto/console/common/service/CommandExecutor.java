@@ -7,6 +7,7 @@ import com.crypto.console.common.command.impl.BuyCommand;
 import com.crypto.console.common.command.impl.BuyInfoCommand;
 import com.crypto.console.common.command.impl.SellInfoCommand;
 import com.crypto.console.common.command.impl.DepositCommand;
+import com.crypto.console.common.command.impl.SpreadCommand;
 import com.crypto.console.common.command.impl.InvalidCommand;
 import com.crypto.console.common.command.impl.MoveCommand;
 import com.crypto.console.common.command.impl.OrderBookCommand;
@@ -50,6 +51,7 @@ public class CommandExecutor {
                 case BUY -> handleBuy((BuyCommand) command);
                 case BUYINFO -> handleBuyInfo((BuyInfoCommand) command);
                 case SELLINFO -> handleSellInfo((SellInfoCommand) command);
+                case SPREAD -> handleSpread((SpreadCommand) command);
                 case SELL -> handleSell((SellCommand) command);
                 case MOVE -> handleMove((MoveCommand) command);
                 case DEPOSIT -> handleDeposit((DepositCommand) command);
@@ -185,6 +187,29 @@ public class CommandExecutor {
         return CommandResult.success(message);
     }
 
+    private CommandResult handleSpread(SpreadCommand cmd) {
+        ExchangeClient ex1 = registry.getClient(cmd.exchange1);
+        ExchangeClient ex2 = registry.getClient(cmd.exchange2);
+        BuyInfoResult buyInfo = ex1.buyInfo(cmd.baseAsset, cmd.quoteAsset, cmd.quoteAmount);
+        BuyInfoResult sellInfo = ex2.sellInfo(cmd.baseAsset, cmd.quoteAsset, cmd.quoteAmount);
+        java.math.BigDecimal ask = buyInfo.averagePrice;
+        java.math.BigDecimal bid = sellInfo.averagePrice;
+        if (ask == null || ask.signum() <= 0 || bid == null || bid.signum() <= 0) {
+            throw new ExchangeException("Invalid prices returned for spread calculation");
+        }
+        java.math.BigDecimal spread = bid.subtract(ask)
+                .divide(ask, 6, java.math.RoundingMode.HALF_UP)
+                .multiply(new java.math.BigDecimal("100"));
+        String spreadPct = spread.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
+        String message = "SPREAD " + ex1.name() + "->" + ex2.name()
+                + " " + cmd.baseAsset + "/" + cmd.quoteAsset
+                + " amount=" + cmd.quoteAmount + " " + cmd.quoteAsset
+                + ": ask=" + ask + " (" + ex1.name() + "), bid=" + bid + " (" + ex2.name() + ")"
+                + ", spread=" + spreadPct + "%";
+        logSuccess(message);
+        return CommandResult.success(message);
+    }
+
     private CommandResult handleMove(MoveCommand cmd) {
         requireSecrets(cmd.from);
         requireSecrets(cmd.to);
@@ -236,6 +261,7 @@ public class CommandExecutor {
                 "  buy <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
                 "  buyinfo <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
                 "  sellinfo <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
+                "  spread <ex1> <ex2> <baseAsset> <quoteAmount> <quoteAsset>",
                 "  sell <exchange> <baseAsset> <baseAmount> <quoteAsset>",
                 "  balance <exchange> <asset>",
                 "  deposit <exchange> <asset>",

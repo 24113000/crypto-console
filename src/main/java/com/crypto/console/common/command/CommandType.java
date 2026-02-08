@@ -5,6 +5,7 @@ public enum CommandType {
     BUY,
     BUYINFO,
     SELLINFO,
+    SPREAD,
     SELL,
     BALANCE,
     ORDERBOOK,
