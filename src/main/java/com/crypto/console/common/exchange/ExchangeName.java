@@ -12,6 +12,9 @@ public enum ExchangeName {
     GATEIO("gateio"),
     HTX("htx"),
     LBANK("lbank"),
+    ASCENDEX("ascendex"),
+
+    //stub
     EXSTUB1("exstub1"),
     EXSTUB2("exstub2");
 

@@ -13,6 +13,7 @@ import com.crypto.console.exchanges.exstub2.ExStub2Client;
 import com.crypto.console.exchanges.gateio.GateIoClient;
 import com.crypto.console.exchanges.htx.HtxClient;
 import com.crypto.console.exchanges.kucoin.KuCoinClient;
+import com.crypto.console.exchanges.ascendex.AscendExClient;
 import com.crypto.console.exchanges.lbank.LBankClient;
 import com.crypto.console.exchanges.mexc.MexcClient;
 import com.crypto.console.exchanges.xt.XtClient;
@@ -28,6 +29,7 @@ import static com.crypto.console.common.exchange.ExchangeName.EXSTUB2;
 import static com.crypto.console.common.exchange.ExchangeName.GATEIO;
 import static com.crypto.console.common.exchange.ExchangeName.HTX;
 import static com.crypto.console.common.exchange.ExchangeName.KUCOIN;
+import static com.crypto.console.common.exchange.ExchangeName.ASCENDEX;
 import static com.crypto.console.common.exchange.ExchangeName.LBANK;
 import static com.crypto.console.common.exchange.ExchangeName.MEXC;
 import static com.crypto.console.common.exchange.ExchangeName.XT;
@@ -58,6 +60,7 @@ public class ExchangeRegistry {
         createClient(GATEIO,    appProperties, map, secrets);
         createClient(HTX,       appProperties, map, secrets);
         createClient(LBANK,     appProperties, map, secrets);
+        createClient(ASCENDEX,  appProperties, map, secrets);
         createClient(EXSTUB1,   appProperties, map, secrets);
         createClient(EXSTUB2,   appProperties, map, secrets);
 
@@ -99,6 +102,8 @@ public class ExchangeRegistry {
                     map.put(exchange, new HtxClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case LBANK ->
                     map.put(exchange, new LBankClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
+            case ASCENDEX ->
+                    map.put(exchange, new AscendExClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case EXSTUB1 ->
                     map.put(exchange, new ExStub1Client(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case EXSTUB2 ->
