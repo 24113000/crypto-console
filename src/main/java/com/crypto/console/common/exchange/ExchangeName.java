@@ -15,6 +15,7 @@ public enum ExchangeName {
     ASCENDEX("ascendex"),
     HITBTC("hitbtc"),
     BINGX("bingx"),
+    BITGET("bitget"),
     POLONIEX("poloniex"),
 
     //stub
