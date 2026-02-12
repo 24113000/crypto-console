@@ -9,6 +9,7 @@ import com.crypto.console.exchanges.binance.BinanceClient;
 import com.crypto.console.exchanges.bingx.BingxClient;
 import com.crypto.console.exchanges.bitget.BitgetClient;
 import com.crypto.console.exchanges.bitmart.BitMartClient;
+import com.crypto.console.exchanges.bitrue.BitrueClient;
 import com.crypto.console.exchanges.coinex.CoinExClient;
 import com.crypto.console.exchanges.exstub1.ExStub1Client;
 import com.crypto.console.exchanges.exstub2.ExStub2Client;
@@ -29,6 +30,7 @@ import static com.crypto.console.common.exchange.ExchangeName.BINANCE;
 import static com.crypto.console.common.exchange.ExchangeName.BINGX;
 import static com.crypto.console.common.exchange.ExchangeName.BITGET;
 import static com.crypto.console.common.exchange.ExchangeName.BITMART;
+import static com.crypto.console.common.exchange.ExchangeName.BITRUE;
 import static com.crypto.console.common.exchange.ExchangeName.COINEX;
 import static com.crypto.console.common.exchange.ExchangeName.EXSTUB1;
 import static com.crypto.console.common.exchange.ExchangeName.EXSTUB2;
@@ -62,6 +64,7 @@ public class ExchangeRegistry {
         createClient(BINANCE,   appProperties, map, secrets);
         createClient(BINGX,     appProperties, map, secrets);
         createClient(BITGET,    appProperties, map, secrets);
+        createClient(BITRUE,    appProperties, map, secrets);
         createClient(MEXC,      appProperties, map, secrets);
         createClient(XT,        appProperties, map, secrets);
         createClient(COINEX,    appProperties, map, secrets);
@@ -102,6 +105,8 @@ public class ExchangeRegistry {
                     map.put(exchange, new BingxClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case BITGET ->
                     map.put(exchange, new BitgetClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
+            case BITRUE ->
+                    map.put(exchange, new BitrueClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case MEXC ->
                     map.put(exchange, new MexcClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case XT ->

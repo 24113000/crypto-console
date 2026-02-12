@@ -16,6 +16,7 @@ public enum ExchangeName {
     HITBTC("hitbtc"),
     BINGX("bingx"),
     BITGET("bitget"),
+    BITRUE("bitrue"),
     POLONIEX("poloniex"),
 
     //stub
@@ -47,6 +48,9 @@ public enum ExchangeName {
         }
         if ("gateio".equals(normalized)) {
             return GATEIO;
+        }
+        if ("bittrue".equals(normalized)) {
+            return BITRUE;
         }
         throw new ExchangeException("Unsupported exchange: " + value);
     }
