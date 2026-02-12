@@ -13,6 +13,7 @@ public enum ExchangeName {
     HTX("htx"),
     LBANK("lbank"),
     ASCENDEX("ascendex"),
+    HITBTC("hitbtc"),
 
     //stub
     EXSTUB1("exstub1"),
