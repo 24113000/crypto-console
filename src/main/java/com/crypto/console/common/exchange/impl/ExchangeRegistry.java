@@ -6,6 +6,7 @@ import com.crypto.console.common.model.ExchangeException;
 import com.crypto.console.common.properties.AppProperties;
 import com.crypto.console.common.properties.SecretsProperties;
 import com.crypto.console.exchanges.binance.BinanceClient;
+import com.crypto.console.exchanges.bingx.BingxClient;
 import com.crypto.console.exchanges.bitmart.BitMartClient;
 import com.crypto.console.exchanges.coinex.CoinExClient;
 import com.crypto.console.exchanges.exstub1.ExStub1Client;
@@ -17,12 +18,14 @@ import com.crypto.console.exchanges.kucoin.KuCoinClient;
 import com.crypto.console.exchanges.ascendex.AscendExClient;
 import com.crypto.console.exchanges.lbank.LBankClient;
 import com.crypto.console.exchanges.mexc.MexcClient;
+import com.crypto.console.exchanges.poloniex.PoloniexClient;
 import com.crypto.console.exchanges.xt.XtClient;
 
 import java.util.EnumMap;
 import java.util.Map;
 
 import static com.crypto.console.common.exchange.ExchangeName.BINANCE;
+import static com.crypto.console.common.exchange.ExchangeName.BINGX;
 import static com.crypto.console.common.exchange.ExchangeName.BITMART;
 import static com.crypto.console.common.exchange.ExchangeName.COINEX;
 import static com.crypto.console.common.exchange.ExchangeName.EXSTUB1;
@@ -34,6 +37,7 @@ import static com.crypto.console.common.exchange.ExchangeName.KUCOIN;
 import static com.crypto.console.common.exchange.ExchangeName.ASCENDEX;
 import static com.crypto.console.common.exchange.ExchangeName.LBANK;
 import static com.crypto.console.common.exchange.ExchangeName.MEXC;
+import static com.crypto.console.common.exchange.ExchangeName.POLONIEX;
 import static com.crypto.console.common.exchange.ExchangeName.XT;
 
 public class ExchangeRegistry {
@@ -54,6 +58,7 @@ public class ExchangeRegistry {
         }
 
         createClient(BINANCE,   appProperties, map, secrets);
+        createClient(BINGX,     appProperties, map, secrets);
         createClient(MEXC,      appProperties, map, secrets);
         createClient(XT,        appProperties, map, secrets);
         createClient(COINEX,    appProperties, map, secrets);
@@ -64,6 +69,7 @@ public class ExchangeRegistry {
         createClient(HTX,       appProperties, map, secrets);
         createClient(LBANK,     appProperties, map, secrets);
         createClient(ASCENDEX,  appProperties, map, secrets);
+        createClient(POLONIEX,  appProperties, map, secrets);
         createClient(EXSTUB1,   appProperties, map, secrets);
         createClient(EXSTUB2,   appProperties, map, secrets);
 
@@ -89,6 +95,8 @@ public class ExchangeRegistry {
         switch (exchange) {
             case BINANCE ->
                     map.put(exchange, new BinanceClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
+            case BINGX ->
+                    map.put(exchange, new BingxClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case MEXC ->
                     map.put(exchange, new MexcClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case XT ->
@@ -109,6 +117,8 @@ public class ExchangeRegistry {
                     map.put(exchange, new LBankClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case ASCENDEX ->
                     map.put(exchange, new AscendExClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
+            case POLONIEX ->
+                    map.put(exchange, new PoloniexClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case EXSTUB1 ->
                     map.put(exchange, new ExStub1Client(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case EXSTUB2 ->

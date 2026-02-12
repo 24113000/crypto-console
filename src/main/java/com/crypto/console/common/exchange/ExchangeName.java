@@ -14,6 +14,8 @@ public enum ExchangeName {
     LBANK("lbank"),
     ASCENDEX("ascendex"),
     HITBTC("hitbtc"),
+    BINGX("bingx"),
+    POLONIEX("poloniex"),
 
     //stub
     EXSTUB1("exstub1"),
@@ -33,12 +35,26 @@ public enum ExchangeName {
         if (value == null || value.isBlank()) {
             throw new ExchangeException("Exchange name is required");
         }
-        String normalized = value.trim().toLowerCase();
+        String normalized = canonical(value);
         for (ExchangeName name : values()) {
-            if (name.id.equals(normalized)) {
+            if (canonical(name.id).equals(normalized)) {
                 return name;
             }
         }
+        if ("ascend".equals(normalized)) {
+            return ASCENDEX;
+        }
+        if ("gateio".equals(normalized)) {
+            return GATEIO;
+        }
         throw new ExchangeException("Unsupported exchange: " + value);
+    }
+
+    private static String canonical(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String trimmed = raw.trim().replace("\uFEFF", "");
+        return trimmed.toLowerCase().replaceAll("[^a-z0-9]", "");
     }
 }
