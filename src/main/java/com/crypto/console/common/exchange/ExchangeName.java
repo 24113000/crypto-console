@@ -16,6 +16,7 @@ public enum ExchangeName {
     HITBTC("hitbtc"),
     BINGX("bingx"),
     BITGET("bitget"),
+    BYBIT("bybit"),
     BITRUE("bitrue"),
     POLONIEX("poloniex"),
 
