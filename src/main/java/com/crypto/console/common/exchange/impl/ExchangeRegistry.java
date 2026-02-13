@@ -22,6 +22,7 @@ import com.crypto.console.exchanges.kucoin.KuCoinClient;
 import com.crypto.console.exchanges.ascendex.AscendExClient;
 import com.crypto.console.exchanges.lbank.LBankClient;
 import com.crypto.console.exchanges.mexc.MexcClient;
+import com.crypto.console.exchanges.okx.OkxClient;
 import com.crypto.console.exchanges.poloniex.PoloniexClient;
 import com.crypto.console.exchanges.xt.XtClient;
 
@@ -45,6 +46,7 @@ import static com.crypto.console.common.exchange.ExchangeName.KUCOIN;
 import static com.crypto.console.common.exchange.ExchangeName.ASCENDEX;
 import static com.crypto.console.common.exchange.ExchangeName.LBANK;
 import static com.crypto.console.common.exchange.ExchangeName.MEXC;
+import static com.crypto.console.common.exchange.ExchangeName.OKX;
 import static com.crypto.console.common.exchange.ExchangeName.POLONIEX;
 import static com.crypto.console.common.exchange.ExchangeName.XT;
 
@@ -79,6 +81,7 @@ public class ExchangeRegistry {
         createClient(HITBTC,    appProperties, map, secrets);
         createClient(HTX,       appProperties, map, secrets);
         createClient(KRAKEN,    appProperties, map, secrets);
+        createClient(OKX,       appProperties, map, secrets);
         createClient(LBANK,     appProperties, map, secrets);
         createClient(ASCENDEX,  appProperties, map, secrets);
         createClient(POLONIEX,  appProperties, map, secrets);
@@ -133,6 +136,8 @@ public class ExchangeRegistry {
                     map.put(exchange, new HtxClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case KRAKEN ->
                     map.put(exchange, new KrakenClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
+            case OKX ->
+                    map.put(exchange, new OkxClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case LBANK ->
                     map.put(exchange, new LBankClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case ASCENDEX ->
