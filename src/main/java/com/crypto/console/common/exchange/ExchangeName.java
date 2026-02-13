@@ -17,6 +17,7 @@ public enum ExchangeName {
     BINGX("bingx"),
     BITGET("bitget"),
     BYBIT("bybit"),
+    KRAKEN("kraken"),
     BITRUE("bitrue"),
     POLONIEX("poloniex"),
 

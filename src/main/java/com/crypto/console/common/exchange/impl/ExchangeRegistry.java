@@ -17,6 +17,7 @@ import com.crypto.console.exchanges.exstub2.ExStub2Client;
 import com.crypto.console.exchanges.gateio.GateIoClient;
 import com.crypto.console.exchanges.hitbtc.HitBtcClient;
 import com.crypto.console.exchanges.htx.HtxClient;
+import com.crypto.console.exchanges.kraken.KrakenClient;
 import com.crypto.console.exchanges.kucoin.KuCoinClient;
 import com.crypto.console.exchanges.ascendex.AscendExClient;
 import com.crypto.console.exchanges.lbank.LBankClient;
@@ -39,6 +40,7 @@ import static com.crypto.console.common.exchange.ExchangeName.EXSTUB2;
 import static com.crypto.console.common.exchange.ExchangeName.GATEIO;
 import static com.crypto.console.common.exchange.ExchangeName.HITBTC;
 import static com.crypto.console.common.exchange.ExchangeName.HTX;
+import static com.crypto.console.common.exchange.ExchangeName.KRAKEN;
 import static com.crypto.console.common.exchange.ExchangeName.KUCOIN;
 import static com.crypto.console.common.exchange.ExchangeName.ASCENDEX;
 import static com.crypto.console.common.exchange.ExchangeName.LBANK;
@@ -76,6 +78,7 @@ public class ExchangeRegistry {
         createClient(GATEIO,    appProperties, map, secrets);
         createClient(HITBTC,    appProperties, map, secrets);
         createClient(HTX,       appProperties, map, secrets);
+        createClient(KRAKEN,    appProperties, map, secrets);
         createClient(LBANK,     appProperties, map, secrets);
         createClient(ASCENDEX,  appProperties, map, secrets);
         createClient(POLONIEX,  appProperties, map, secrets);
@@ -128,6 +131,8 @@ public class ExchangeRegistry {
                     map.put(exchange, new HitBtcClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case HTX ->
                     map.put(exchange, new HtxClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
+            case KRAKEN ->
+                    map.put(exchange, new KrakenClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case LBANK ->
                     map.put(exchange, new LBankClient(appProperties.getExchanges().get(exchange.id()), secrets.get(exchange)));
             case ASCENDEX ->
