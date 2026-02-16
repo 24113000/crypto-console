@@ -217,6 +217,7 @@ public class KuCoinClient extends BaseExchangeClient implements DepositNetworkPr
         }
 
         ExchangeException last = null;
+        boolean createPermissionDenied = false;
         for (String chainCandidate : chainCandidates) {
             for (EndpointAttempt attempt : EndpointAttempt.values()) {
                 try {
@@ -236,12 +237,24 @@ public class KuCoinClient extends BaseExchangeClient implements DepositNetworkPr
                     if (isDepositDisabledError(ex)) {
                         throw new ExchangeException("KuCoin deposit is disabled for network " + network + " (" + chainCandidate + ")");
                     }
+                    if (attempt.isCreate() && isAddressCreatePermissionError(ex)) {
+                        createPermissionDenied = true;
+                        continue;
+                    }
                     if (isRetriableDepositAddressError(ex)) {
                         continue;
                     }
                     throw ex;
                 }
             }
+        }
+        if (createPermissionDenied) {
+            throw new ExchangeException(
+                    "KuCoin did not return an existing deposit address for "
+                            + currency.currency + " " + chain.chainName
+                            + " and API key cannot create one (code=400007 access denied). "
+                            + "Enable deposit-address creation permission or create the address in KuCoin UI first."
+            );
         }
         if (last != null) {
             throw last;
@@ -526,6 +539,11 @@ public class KuCoinClient extends BaseExchangeClient implements DepositNetworkPr
                 || m.contains("HTTP 400");
     }
 
+    private boolean isAddressCreatePermissionError(ExchangeException ex) {
+        String m = StringUtils.defaultString(ex.getUserMessage()).toLowerCase();
+        return m.contains("code=400007") || (m.contains("http 403") && m.contains("access denied"));
+    }
+
     private boolean isDepositDisabledError(ExchangeException ex) {
         String m = StringUtils.defaultString(ex.getUserMessage()).toLowerCase();
         return m.contains("code=260200") || m.contains("deposit.disabled");
@@ -573,7 +591,7 @@ public class KuCoinClient extends BaseExchangeClient implements DepositNetworkPr
     private JsonNode signedPost(String path, Map<String, Object> payload) {
         String json = toJson(payload);
         Auth auth = sign("POST", path, json);
-        LOG.info("kucoin POST {}", LogSanitizer.sanitize(path + "?" + json));
+        LOG.info("kucoin POST {} body={}", LogSanitizer.sanitize(path), LogSanitizer.sanitize(json));
         String body = webClient.post()
                 .uri(path)
                 .header(HttpHeaders.USER_AGENT, "crypto-console")
@@ -729,6 +747,10 @@ public class KuCoinClient extends BaseExchangeClient implements DepositNetworkPr
         GET_V2,
         GET_V1,
         POST_V2,
-        POST_V1
+        POST_V1;
+
+        private boolean isCreate() {
+            return this == POST_V2 || this == POST_V1;
+        }
     }
 }
