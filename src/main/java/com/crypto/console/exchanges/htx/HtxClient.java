@@ -20,6 +20,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.Charset;
@@ -87,7 +88,138 @@ public class HtxClient extends BaseExchangeClient implements DepositNetworkProvi
 
     @Override
     public OrderBook getOrderBook(String base, String quote, int depth) {
-        throw notImplemented("GET /market/depth (public)");
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        String symbol = resolveSymbol(base, quote);
+        JsonNode tick = fetchDepthTick(symbol);
+        JsonNode bidsNode = tick.path("bids");
+        JsonNode asksNode = tick.path("asks");
+        if (!bidsNode.isArray() || !asksNode.isArray()) {
+            throw new ExchangeException("Unexpected response from HTX depth API");
+        }
+        int maxDepth = depth > 0 ? depth : 10;
+        List<OrderBookEntry> bids = toOrderBookEntries(bidsNode, maxDepth);
+        List<OrderBookEntry> asks = toOrderBookEntries(asksNode, maxDepth);
+        return new OrderBook(symbol.toUpperCase(), bids, asks);
+    }
+
+    @Override
+    public BuyInfoResult buyInfo(String base, String quote, BigDecimal quoteAmount) {
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        if (quoteAmount == null || quoteAmount.signum() <= 0) {
+            throw new ExchangeException("Quote amount must be positive");
+        }
+
+        String symbol = resolveSymbol(base, quote);
+        JsonNode asks = fetchDepthTick(symbol).path("asks");
+        if (!asks.isArray()) {
+            throw new ExchangeException("Unexpected response from HTX depth API");
+        }
+
+        BigDecimal remainingQuote = quoteAmount;
+        BigDecimal spentQuote = BigDecimal.ZERO;
+        BigDecimal boughtBase = BigDecimal.ZERO;
+        List<BuyInfoItem> affectedItems = new ArrayList<>();
+
+        for (JsonNode ask : asks) {
+            if (ask == null || !ask.isArray() || ask.size() < 2) {
+                continue;
+            }
+            BigDecimal price = toDecimal(ask.get(0));
+            BigDecimal quantity = toDecimal(ask.get(1));
+            if (price.signum() <= 0 || quantity.signum() <= 0) {
+                continue;
+            }
+            BigDecimal levelQuoteCost = price.multiply(quantity);
+            if (remainingQuote.compareTo(levelQuoteCost) >= 0) {
+                boughtBase = boughtBase.add(quantity);
+                spentQuote = spentQuote.add(levelQuoteCost);
+                affectedItems.add(new BuyInfoItem(price, quantity, levelQuoteCost));
+                remainingQuote = remainingQuote.subtract(levelQuoteCost);
+            } else {
+                BigDecimal partialQty = remainingQuote.divide(price, 18, RoundingMode.DOWN);
+                if (partialQty.signum() > 0) {
+                    BigDecimal partialCost = partialQty.multiply(price);
+                    boughtBase = boughtBase.add(partialQty);
+                    spentQuote = spentQuote.add(partialCost);
+                    affectedItems.add(new BuyInfoItem(price, partialQty, partialCost));
+                }
+                remainingQuote = BigDecimal.ZERO;
+                break;
+            }
+            if (remainingQuote.signum() == 0) {
+                break;
+            }
+        }
+
+        if (boughtBase.signum() <= 0) {
+            throw new ExchangeException("No ask liquidity available for " + symbol.toUpperCase());
+        }
+
+        BigDecimal averagePrice = spentQuote.divide(boughtBase, 18, RoundingMode.HALF_UP);
+        return new BuyInfoResult(symbol.toUpperCase(), quoteAmount, spentQuote, boughtBase, averagePrice, List.copyOf(affectedItems));
+    }
+
+    @Override
+    public BuyInfoResult sellInfo(String base, String quote, BigDecimal quoteAmount) {
+        if (StringUtils.isBlank(base) || StringUtils.isBlank(quote)) {
+            throw new ExchangeException("Base and quote assets are required");
+        }
+        if (quoteAmount == null || quoteAmount.signum() <= 0) {
+            throw new ExchangeException("Quote amount must be positive");
+        }
+
+        String symbol = resolveSymbol(base, quote);
+        JsonNode bids = fetchDepthTick(symbol).path("bids");
+        if (!bids.isArray()) {
+            throw new ExchangeException("Unexpected response from HTX depth API");
+        }
+
+        BigDecimal remainingQuote = quoteAmount;
+        BigDecimal receivedQuote = BigDecimal.ZERO;
+        BigDecimal soldBase = BigDecimal.ZERO;
+        List<BuyInfoItem> affectedItems = new ArrayList<>();
+
+        for (JsonNode bid : bids) {
+            if (bid == null || !bid.isArray() || bid.size() < 2) {
+                continue;
+            }
+            BigDecimal price = toDecimal(bid.get(0));
+            BigDecimal quantity = toDecimal(bid.get(1));
+            if (price.signum() <= 0 || quantity.signum() <= 0) {
+                continue;
+            }
+            BigDecimal levelQuoteValue = price.multiply(quantity);
+            if (remainingQuote.compareTo(levelQuoteValue) >= 0) {
+                soldBase = soldBase.add(quantity);
+                receivedQuote = receivedQuote.add(levelQuoteValue);
+                affectedItems.add(new BuyInfoItem(price, quantity, levelQuoteValue));
+                remainingQuote = remainingQuote.subtract(levelQuoteValue);
+            } else {
+                BigDecimal partialQty = remainingQuote.divide(price, 18, RoundingMode.DOWN);
+                if (partialQty.signum() > 0) {
+                    BigDecimal partialValue = partialQty.multiply(price);
+                    soldBase = soldBase.add(partialQty);
+                    receivedQuote = receivedQuote.add(partialValue);
+                    affectedItems.add(new BuyInfoItem(price, partialQty, partialValue));
+                }
+                remainingQuote = BigDecimal.ZERO;
+                break;
+            }
+            if (remainingQuote.signum() == 0) {
+                break;
+            }
+        }
+
+        if (soldBase.signum() <= 0) {
+            throw new ExchangeException("No bid liquidity available for " + symbol.toUpperCase());
+        }
+
+        BigDecimal averagePrice = receivedQuote.divide(soldBase, 18, RoundingMode.HALF_UP);
+        return new BuyInfoResult(symbol.toUpperCase(), quoteAmount, receivedQuote, soldBase, averagePrice, List.copyOf(affectedItems));
     }
 
     @Override
@@ -263,9 +395,9 @@ public class HtxClient extends BaseExchangeClient implements DepositNetworkProvi
             throw new ExchangeException("Missing API credentials for htx");
         }
 
-        String uri = buildHuobiSignedGet("/v2/account/deposit/address", "currency", asset.toLowerCase(), apiKey, apiSecret);
-        LOG.info("htx GET {}", LogSanitizer.sanitize(uri));
-        JsonNode response = getJson(webClient, uri, false, null, getHost());
+        Map<String, String> params = new TreeMap<>();
+        params.put("currency", asset.toLowerCase());
+        JsonNode response = signedGet("/v2/account/deposit/address", params, apiKey, apiSecret);
         JsonNode data = extractData(response, "deposit address");
         if (!data.isArray()) {
             return null;
@@ -471,6 +603,49 @@ public class HtxClient extends BaseExchangeClient implements DepositNetworkProvi
         return null;
     }
 
+    private String resolveSymbol(String base, String quote) {
+        String symbol = (base + quote).toLowerCase();
+        if (getSymbolInfo(symbol) == null) {
+            throw new ExchangeException("Invalid symbol: " + (base + quote).toUpperCase() + ". Check base/quote assets.");
+        }
+        return symbol;
+    }
+
+    private JsonNode fetchDepthTick(String symbol) {
+        String uri = "/market/depth?symbol=" + encodeQuery(symbol.toLowerCase()) + "&type=step0";
+        LOG.info("htx GET {}", LogSanitizer.sanitize(uri));
+        JsonNode response = publicGet(uri);
+        JsonNode tick = requireOk(response, "depth").path("tick");
+        if (tick.isMissingNode() || tick.isNull()) {
+            throw new ExchangeException("Unexpected response from HTX depth API");
+        }
+        return tick;
+    }
+
+    private List<OrderBookEntry> toOrderBookEntries(JsonNode levels, int depth) {
+        List<OrderBookEntry> entries = new ArrayList<>();
+        if (!levels.isArray() || depth <= 0) {
+            return entries;
+        }
+        int count = 0;
+        for (JsonNode level : levels) {
+            if (level == null || !level.isArray() || level.size() < 2) {
+                continue;
+            }
+            BigDecimal price = toDecimal(level.get(0));
+            BigDecimal quantity = toDecimal(level.get(1));
+            if (price.signum() <= 0 || quantity.signum() <= 0) {
+                continue;
+            }
+            entries.add(new OrderBookEntry(price, quantity));
+            count++;
+            if (count >= depth) {
+                break;
+            }
+        }
+        return entries;
+    }
+
     private BigDecimal applyAmountPrecision(BigDecimal qty, Integer precision) {
         if (qty == null) {
             return BigDecimal.ZERO;
@@ -633,10 +808,11 @@ public class HtxClient extends BaseExchangeClient implements DepositNetworkProvi
 
     private JsonNode getJson(WebClient client, String uri, boolean isPost, Object body, String hostHeader) {
         try {
+            URI requestUri = resolveRequestUri(uri, hostHeader);
             String response;
             if (isPost) {
                 var request = client.post()
-                        .uri(uri)
+                        .uri(requestUri)
                         .header(HttpHeaders.USER_AGENT, "crypto-console")
                         .header(HttpHeaders.CONTENT_TYPE, "application/json");
                 if (StringUtils.isNotBlank(hostHeader)) {
@@ -657,7 +833,7 @@ public class HtxClient extends BaseExchangeClient implements DepositNetworkProvi
                         .block();
             } else {
                 var request = client.get()
-                        .uri(uri)
+                        .uri(requestUri)
                         .header(HttpHeaders.USER_AGENT, "crypto-console")
                         .header(HttpHeaders.CONTENT_TYPE, "application/x-www-form-urlencoded");
                 if (StringUtils.isNotBlank(hostHeader)) {
@@ -685,6 +861,17 @@ public class HtxClient extends BaseExchangeClient implements DepositNetworkProvi
         } catch (Exception e) {
             throw new ExchangeException("Failed to parse HTX response", e);
         }
+    }
+
+    private URI resolveRequestUri(String uri, String hostHeader) {
+        if (StringUtils.startsWithIgnoreCase(uri, "http://") || StringUtils.startsWithIgnoreCase(uri, "https://")) {
+            return URI.create(uri);
+        }
+        URI base = URI.create(baseUrl);
+        String scheme = StringUtils.defaultIfBlank(base.getScheme(), "https");
+        String host = StringUtils.defaultIfBlank(hostHeader, getRequestHost());
+        String pathAndQuery = uri.startsWith("/") ? uri : "/" + uri;
+        return URI.create(scheme + "://" + host + pathAndQuery);
     }
 
     private WebClient getAltWebClient() {
