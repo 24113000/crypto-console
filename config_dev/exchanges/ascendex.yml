@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    ascendex:
+      baseUrl: "https://ascendex.com"

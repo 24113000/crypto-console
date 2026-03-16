@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    lbank:
+      baseUrl: "https://api.lbkex.com"

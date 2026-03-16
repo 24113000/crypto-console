@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    bybit:
+      baseUrl: "https://api.bybit.com"

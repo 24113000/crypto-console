@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    bingx:
+      baseUrl: "https://open-api.bingx.com"

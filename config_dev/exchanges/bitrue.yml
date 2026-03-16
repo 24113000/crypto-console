@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    bitrue:
+      baseUrl: "https://openapi.bitrue.com"

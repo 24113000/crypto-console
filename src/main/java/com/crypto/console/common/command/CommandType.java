@@ -8,6 +8,7 @@ public enum CommandType {
     SPREAD,
     SELL,
     BALANCE,
+    BALANCES,
     ORDERBOOK,
     DEPOSIT,
     ADDRESS,

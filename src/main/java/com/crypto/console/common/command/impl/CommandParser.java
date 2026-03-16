@@ -24,6 +24,7 @@ public class CommandParser {
             case "spread" -> parseSpread(trimmed, parts);
             case "sell" -> parseSell(trimmed, parts);
             case "balance" -> parseBalance(trimmed, parts);
+            case "balances" -> parseBalances(trimmed, parts);
             case "orderbook" -> parseOrderBook(trimmed, parts);
             case "deposit" -> parseDeposit(trimmed, parts);
             case "address" -> parseAddress(trimmed, parts);
@@ -117,6 +118,13 @@ public class CommandParser {
             return new InvalidCommand(raw, "Syntax: balance <exchange> <asset>");
         }
         return new BalanceCommand(raw, parts[1].toLowerCase(), parts[2].toUpperCase());
+    }
+
+    private Command parseBalances(String raw, String[] parts) {
+        if (parts.length != 2) {
+            return new InvalidCommand(raw, "Syntax: balances <asset>");
+        }
+        return new BalancesCommand(raw, parts[1].toUpperCase());
     }
 
     private Command parseOrderBook(String raw, String[] parts) {

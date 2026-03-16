@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    kraken:
+      baseUrl: "https://api.kraken.com"

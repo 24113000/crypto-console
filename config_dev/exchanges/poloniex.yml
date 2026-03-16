@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    poloniex:
+      baseUrl: "https://api.poloniex.com"

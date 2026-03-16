@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    okx:
+      baseUrl: "https://www.okx.com"

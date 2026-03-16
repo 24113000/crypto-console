@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    bitget:
+      baseUrl: "https://api.bitget.com"

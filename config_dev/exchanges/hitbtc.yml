@@ -1,0 +1,4 @@
+app:
+  exchanges:
+    hitbtc:
+      baseUrl: "https://api.hitbtc.com/api/2"

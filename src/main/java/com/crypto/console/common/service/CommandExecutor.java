@@ -3,6 +3,7 @@ package com.crypto.console.common.service;
 import com.crypto.console.common.command.Command;
 import com.crypto.console.common.command.impl.AddressCommand;
 import com.crypto.console.common.command.impl.BalanceCommand;
+import com.crypto.console.common.command.impl.BalancesCommand;
 import com.crypto.console.common.command.impl.BuyCommand;
 import com.crypto.console.common.command.impl.BuyInfoCommand;
 import com.crypto.console.common.command.impl.SellInfoCommand;
@@ -24,6 +25,10 @@ import com.crypto.console.common.model.OrderBookEntry;
 import com.crypto.console.common.model.OrderResult;
 import com.crypto.console.common.util.LogSanitizer;
 import lombok.extern.slf4j.Slf4j;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 
 @Slf4j
@@ -47,6 +52,7 @@ public class CommandExecutor {
                 case HELP -> CommandResult.success(helpText());
                 case INVALID -> CommandResult.failure(((InvalidCommand) command).error);
                 case BALANCE -> handleBalance((BalanceCommand) command);
+                case BALANCES -> handleBalances((BalancesCommand) command);
                 case ORDERBOOK -> handleOrderBook((OrderBookCommand) command);
                 case BUY -> handleBuy((BuyCommand) command);
                 case BUYINFO -> handleBuyInfo((BuyInfoCommand) command);
@@ -78,6 +84,24 @@ public class CommandExecutor {
         String message = String.format("%s %s free=%s locked=%s",
                 client.name(), cmd.asset, balance.free, balance.locked == null ? "0" : balance.locked);
         logSuccess(message);
+        return CommandResult.success(message);
+    }
+
+    private CommandResult handleBalances(BalancesCommand cmd) {
+        List<BalanceRow> rows = new ArrayList<>();
+        for (String exchange : registry.getAvailableExchanges()) {
+            try {
+                requireSecrets(exchange);
+                ExchangeClient client = registry.getClient(exchange);
+                Balance balance = client.getBalance(cmd.asset);
+                rows.add(new BalanceRow(client.name(), formatTotalBalance(balance), "ok"));
+            } catch (Exception e) {
+                rows.add(new BalanceRow(exchange, "", "error"));
+            }
+        }
+
+        String message = formatBalancesTable(rows, cmd.asset);
+        logSuccess(LogSanitizer.sanitize(message));
         return CommandResult.success(message);
     }
 
@@ -248,6 +272,37 @@ public class CommandExecutor {
         LOG.info("SUCCESS: {}", message);
     }
 
+    private String formatBalancesTable(List<BalanceRow> rows, String asset) {
+        int exchangeWidth = "exchange".length();
+        int balanceWidth = (asset + " balance").length();
+        int statusWidth = "success".length();
+
+        for (BalanceRow row : rows) {
+            exchangeWidth = Math.max(exchangeWidth, row.exchange.length());
+            balanceWidth = Math.max(balanceWidth, row.balance.length());
+            statusWidth = Math.max(statusWidth, row.status.length());
+        }
+
+        String format = "%-" + exchangeWidth + "s | %-" + balanceWidth + "s | %-" + statusWidth + "s";
+        String separator = "-".repeat(exchangeWidth) + "-+-"
+                + "-".repeat(balanceWidth) + "-+-"
+                + "-".repeat(statusWidth);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(format, "exchange", asset + " balance", "success"));
+        sb.append("\n").append(separator);
+        for (BalanceRow row : rows) {
+            sb.append("\n").append(String.format(format, row.exchange, row.balance, row.status));
+        }
+        return sb.toString();
+    }
+
+    private String formatTotalBalance(Balance balance) {
+        BigDecimal free = balance.free == null ? BigDecimal.ZERO : balance.free;
+        BigDecimal locked = balance.locked == null ? BigDecimal.ZERO : balance.locked;
+        return free.add(locked).stripTrailingZeros().toPlainString();
+    }
+
     private void requireSecrets(String exchange) {
         if (!registry.hasSecrets(exchange)) {
             throw new ExchangeException("Missing API credentials for exchange: " + exchange);
@@ -264,11 +319,15 @@ public class CommandExecutor {
                 "  spread <ex1> <ex2> <baseAsset> <quoteAmount> <quoteAsset>",
                 "  sell <exchange> <baseAsset> <baseAmount> <quoteAsset>",
                 "  balance <exchange> <asset>",
+                "  balances <asset>",
                 "  deposit <exchange> <asset>",
                 "  address <exchange> <asset> <network>",
                 "  orderbook <exchange> <base> <quote>",
                 "  help",
                 "  exit"
         );
+    }
+
+    private record BalanceRow(String exchange, String balance, String status) {
     }
 }

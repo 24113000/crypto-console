@@ -27,6 +27,7 @@ import com.crypto.console.exchanges.poloniex.PoloniexClient;
 import com.crypto.console.exchanges.xt.XtClient;
 
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 import static com.crypto.console.common.exchange.ExchangeName.BINANCE;
@@ -101,6 +102,13 @@ public class ExchangeRegistry {
 
     public boolean hasSecrets(String exchange) {
         return secrets.containsKey(ExchangeName.from(exchange));
+    }
+
+    public List<String> getAvailableExchanges() {
+        return clients.keySet().stream()
+                .map(ExchangeName::id)
+                .sorted()
+                .toList();
     }
 
     private static void createClient(ExchangeName exchange,
