@@ -133,6 +133,25 @@ public class BingxClient extends BaseExchangeClient implements DepositNetworkPro
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        AssetMeta meta = resolveAsset(asset);
+        if (meta.networks == null || meta.networks.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        List<String> statuses = new ArrayList<>();
+        for (NetMeta network : meta.networks) {
+            if (StringUtils.isBlank(network.name)) {
+                continue;
+            }
+            statuses.add(network.name + "=" + (network.withdraw ? "enabled" : "disabled"));
+        }
+        if (statuses.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        return "withdraw status: " + String.join(", ", statuses);
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         JsonNode d = requireOk(publicGet("/openApi/spot/v1/server/time", Map.of()), "server time");
         long t = lng(d, "serverTime", "timestamp", "time");
