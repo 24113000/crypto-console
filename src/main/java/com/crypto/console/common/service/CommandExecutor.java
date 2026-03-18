@@ -89,18 +89,21 @@ public class CommandExecutor {
 
     private CommandResult handleBalances(BalancesCommand cmd) {
         List<BalanceRow> rows = new ArrayList<>();
+        BigDecimal total = BigDecimal.ZERO;
         for (String exchange : registry.getAvailableExchanges()) {
             try {
                 requireSecrets(exchange);
                 ExchangeClient client = registry.getClient(exchange);
                 Balance balance = client.getBalance(cmd.asset);
-                rows.add(new BalanceRow(client.name(), formatTotalBalance(balance), "ok"));
+                String totalBalance = formatTotalBalance(balance);
+                rows.add(new BalanceRow(client.name(), totalBalance, "ok"));
+                total = total.add(parseBalanceValue(totalBalance));
             } catch (Exception e) {
                 rows.add(new BalanceRow(exchange, "", "error"));
             }
         }
 
-        String message = formatBalancesTable(rows, cmd.asset);
+        String message = formatBalancesTable(rows, cmd.asset, total);
         logSuccess(LogSanitizer.sanitize(message));
         return CommandResult.success(message);
     }
@@ -275,7 +278,7 @@ public class CommandExecutor {
         LOG.info("SUCCESS: {}", message);
     }
 
-    private String formatBalancesTable(List<BalanceRow> rows, String asset) {
+    private String formatBalancesTable(List<BalanceRow> rows, String asset, BigDecimal total) {
         int exchangeWidth = "exchange".length();
         int balanceWidth = (asset + " balance").length();
         int statusWidth = "success".length();
@@ -297,6 +300,8 @@ public class CommandExecutor {
         for (BalanceRow row : rows) {
             sb.append("\n").append(String.format(format, row.exchange, row.balance, row.status));
         }
+        sb.append("\n").append(separator);
+        sb.append("\n").append(String.format(format, "total", total.stripTrailingZeros().toPlainString(), "ok"));
         return sb.toString();
     }
 
@@ -304,6 +309,13 @@ public class CommandExecutor {
         BigDecimal free = balance.free == null ? BigDecimal.ZERO : balance.free;
         BigDecimal locked = balance.locked == null ? BigDecimal.ZERO : balance.locked;
         return free.add(locked).stripTrailingZeros().toPlainString();
+    }
+
+    private BigDecimal parseBalanceValue(String value) {
+        if (value == null || value.isBlank()) {
+            return BigDecimal.ZERO;
+        }
+        return new BigDecimal(value);
     }
 
     private void requireSecrets(String exchange) {

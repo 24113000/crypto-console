@@ -3,33 +3,39 @@ package com.crypto.console.common.exchange;
 import com.crypto.console.common.model.ExchangeException;
 
 public enum ExchangeName {
-    ASCENDEX("ascendex"),
-    BINANCE("binance"),
-    BINGX("bingx"),
-    BITGET("bitget"),
-    BITMART("bitmart"),
-    BITRUE("bitrue"),
-    BYBIT("bybit"),
-    COINEX("coinex"),
-    GATEIO("gateio"),
-    HITBTC("hitbtc"),
-    HTX("htx"),
-    KRAKEN("kraken"),
-    KUCOIN("kucoin"),
-    LBANK("lbank"),
-    MEXC("mexc"),
-    OKX("okx"),
-    POLONIEX("poloniex"),
-    XT("xt"),
+    ASCENDEX("ascendex", "asc"),
+    BINANCE("binance", "bin"),
+    BINGX("bingx", "bgx"),
+    BITGET("bitget", "btg"),
+    BITMART("bitmart", "bmt"),
+    BITRUE("bitrue", "btr"),
+    BYBIT("bybit", "byb"),
+    COINEX("coinex", "cnx"),
+    GATEIO("gateio", "gio"),
+    HITBTC("hitbtc", "hit"),
+    HTX("htx", "htx"),
+    KRAKEN("kraken", "krk"),
+    KUCOIN("kucoin", "kuc"),
+    LBANK("lbank", "lbk"),
+    MEXC("mexc", "mxc"),
+    OKX("okx", "okx"),
+    POLONIEX("poloniex", "plx"),
+    XT("xt", "xt"),
 
     //stub
-    EXSTUB1("exstub1"),
-    EXSTUB2("exstub2");
+    EXSTUB1("exstub1", "EX1"),
+    EXSTUB2("exstub2", "EX2");
 
     private final String id;
+    private final String alias;
 
     ExchangeName(String id) {
+        this(id, null);
+    }
+
+    ExchangeName(String id, String alias) {
         this.id = id;
+        this.alias = alias;
     }
 
     public String id() {
@@ -42,14 +48,14 @@ public enum ExchangeName {
         }
         String normalized = canonical(value);
         for (ExchangeName name : values()) {
-            if (canonical(name.id).equals(normalized)) {
+            if (canonical(name.id).equals(normalized) || canonical(name.alias).equals(normalized)) {
                 return name;
             }
         }
         if ("ascend".equals(normalized)) {
             return ASCENDEX;
         }
-        if ("gateio".equals(normalized)) {
+        if ("gate".equals(normalized)) {
             return GATEIO;
         }
         if ("bittrue".equals(normalized)) {
