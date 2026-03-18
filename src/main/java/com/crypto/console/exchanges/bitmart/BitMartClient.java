@@ -292,6 +292,33 @@ public class BitMartClient extends BaseExchangeClient implements DepositNetworkP
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        if (StringUtils.isBlank(asset)) {
+            throw new ExchangeException("Asset is required");
+        }
+        String assetUpper = asset.toUpperCase();
+        List<CurrencyEntry> entries = fetchCurrencies(assetUpper, getApiKey());
+        List<String> statuses = new ArrayList<>();
+        for (CurrencyEntry entry : entries) {
+            if (!entry.matchesAsset(assetUpper)) {
+                continue;
+            }
+            String net = entry.network;
+            if (StringUtils.isBlank(net)) {
+                net = entry.networkFromCurrency();
+            }
+            if (StringUtils.isBlank(net)) {
+                net = entry.currency;
+            }
+            statuses.add(net.trim().toUpperCase() + "=" + (entry.withdrawEnabled ? "enabled" : "disabled"));
+        }
+        if (statuses.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        return "withdraw status: " + String.join(", ", statuses);
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         throw notImplemented("TODO: verify BitMart server time endpoint");
     }

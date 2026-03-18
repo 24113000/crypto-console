@@ -200,6 +200,25 @@ public class BybitClient extends BaseExchangeClient implements DepositNetworkPro
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        CoinMeta coin = resolveCoin(asset);
+        if (coin.chains == null || coin.chains.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        List<String> statuses = new ArrayList<>();
+        for (ChainMeta chain : coin.chains) {
+            if (StringUtils.isBlank(chain.chain)) {
+                continue;
+            }
+            statuses.add(StringUtils.upperCase(chain.chain) + "=" + (chain.withdrawEnabled ? "enabled" : "disabled"));
+        }
+        if (statuses.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        return "withdraw status: " + String.join(", ", statuses);
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         JsonNode result = requireOk(publicGet("/v5/market/time", Map.of()), "server time");
         long t = result == null ? 0L : result.path("timeSecond").asLong(0L) * 1000L;

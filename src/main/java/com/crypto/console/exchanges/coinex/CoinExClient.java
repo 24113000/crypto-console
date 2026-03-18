@@ -286,6 +286,28 @@ public class CoinExClient extends BaseExchangeClient implements DepositNetworkPr
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        if (StringUtils.isBlank(asset)) {
+            throw new ExchangeException("Asset is required");
+        }
+        DepositWithdrawConfig config = getDepositWithdrawConfig(asset);
+        if (config.chains == null || config.chains.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        List<String> statuses = new ArrayList<>();
+        for (ChainConfig chain : config.chains) {
+            if (StringUtils.isBlank(chain.chain)) {
+                continue;
+            }
+            statuses.add(chain.chain.trim().toUpperCase() + "=" + (chain.withdrawEnabled ? "enabled" : "disabled"));
+        }
+        if (statuses.isEmpty()) {
+            return "withdraw status: " + (config.withdrawEnabled ? "enabled" : "disabled");
+        }
+        return "withdraw status: " + String.join(", ", statuses);
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         JsonNode response = publicGet("/time");
         JsonNode data = requireOk(response, "time").path("data");

@@ -181,6 +181,25 @@ public class BitrueClient extends BaseExchangeClient implements DepositNetworkPr
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        CoinInfo coin = resolveCoin(asset);
+        if (coin.chains == null || coin.chains.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        List<String> statuses = new ArrayList<>();
+        for (ChainInfo chain : coin.chains) {
+            if (StringUtils.isBlank(chain.chain)) {
+                continue;
+            }
+            statuses.add(StringUtils.upperCase(chain.chain) + "=" + (chain.withdrawEnabled ? "enabled" : "disabled"));
+        }
+        if (statuses.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        return "withdraw status: " + String.join(", ", statuses);
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         JsonNode r = publicGet("/api/v1/time", Map.of());
         long t = r == null ? 0L : r.path("serverTime").asLong(0L);
