@@ -271,6 +271,29 @@ public class AscendExClient extends BaseExchangeClient implements DepositNetwork
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        if (StringUtils.isBlank(asset)) {
+            throw new ExchangeException("Asset is required");
+        }
+        List<AssetNetwork> networks = getAssetNetworks(asset);
+        if (networks.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        List<String> statuses = new ArrayList<>();
+        for (AssetNetwork network : networks) {
+            if (StringUtils.isBlank(network.chainName)) {
+                continue;
+            }
+            String status = network.chainName.trim().toUpperCase() + "=" + (network.allowWithdraw ? "enabled" : "disabled");
+            statuses.add(status);
+        }
+        if (statuses.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        return "withdraw status: " + String.join(", ", statuses);
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         throw notImplemented("No dedicated server time endpoint documented for AscendEX");
     }
