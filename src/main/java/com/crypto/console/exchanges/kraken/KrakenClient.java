@@ -182,6 +182,29 @@ public class KrakenClient extends BaseExchangeClient implements DepositNetworkPr
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        if (StringUtils.isBlank(asset)) {
+            throw new ExchangeException("Asset is required");
+        }
+        JsonNode methods = privatePost("/0/private/WithdrawMethods", Map.of("asset", normalizeAssetCode(asset)));
+        if (methods == null || !methods.isArray() || methods.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        List<String> statuses = new ArrayList<>();
+        for (JsonNode methodNode : methods) {
+            String method = textOf(methodNode, "method");
+            if (StringUtils.isBlank(method)) {
+                continue;
+            }
+            statuses.add(method.trim().toUpperCase() + "=enabled");
+        }
+        if (statuses.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        return "withdraw status: " + String.join(", ", statuses);
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         JsonNode result = publicGet("/0/public/Time", Map.of());
         long unixtime = result.path("unixtime").asLong(0L) * 1000L;

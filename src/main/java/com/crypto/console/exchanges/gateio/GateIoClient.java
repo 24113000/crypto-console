@@ -280,6 +280,28 @@ public class GateIoClient extends BaseExchangeClient implements DepositNetworkPr
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        if (StringUtils.isBlank(asset)) {
+            throw new ExchangeException("Asset is required");
+        }
+        List<ChainInfo> chains = getCurrencyChains(asset);
+        if (chains.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        List<String> statuses = new ArrayList<>();
+        for (ChainInfo chain : chains) {
+            if (StringUtils.isBlank(chain.chain)) {
+                continue;
+            }
+            statuses.add(chain.chain.trim().toUpperCase() + "=" + (chain.withdrawEnabled ? "enabled" : "disabled"));
+        }
+        if (statuses.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        return "withdraw status: " + String.join(", ", statuses);
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         JsonNode response = publicGet("/spot/time", null);
         if (response == null || response.get("server_time") == null) {

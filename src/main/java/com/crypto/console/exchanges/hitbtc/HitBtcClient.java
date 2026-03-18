@@ -259,6 +259,27 @@ public class HitBtcClient extends BaseExchangeClient implements DepositNetworkPr
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        if (StringUtils.isBlank(asset)) {
+            throw new ExchangeException("Asset is required");
+        }
+        List<CurrencyRecord> currencies = getCurrencies();
+        String assetUpper = asset.toUpperCase();
+        List<String> statuses = new ArrayList<>();
+        for (CurrencyRecord c : currencies) {
+            if (!isAssetFamilyMatch(assetUpper, c.currency)) {
+                continue;
+            }
+            String name = StringUtils.defaultIfBlank(c.networkCode, c.currency);
+            statuses.add(StringUtils.upperCase(name) + "=" + (c.payoutEnabled ? "enabled" : "disabled"));
+        }
+        if (statuses.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        return "withdraw status: " + String.join(", ", statuses);
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         throw notImplemented("No dedicated /time endpoint in HitBTC v2 docs");
     }

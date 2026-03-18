@@ -351,6 +351,31 @@ public class HtxClient extends BaseExchangeClient implements DepositNetworkProvi
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        if (StringUtils.isBlank(asset)) {
+            throw new ExchangeException("Asset is required");
+        }
+        String apiKey = getApiKey();
+        String apiSecret = getApiSecret();
+        List<ChainInfo> chains = getChainInfo(asset, apiKey, apiSecret);
+        if (chains.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        List<String> statuses = new ArrayList<>();
+        for (ChainInfo chain : chains) {
+            String name = StringUtils.defaultIfBlank(chain.chain, chain.displayName);
+            if (StringUtils.isBlank(name)) {
+                continue;
+            }
+            statuses.add(name.trim().toUpperCase() + "=" + (chain.withdrawEnabled ? "enabled" : "disabled"));
+        }
+        if (statuses.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        return "withdraw status: " + String.join(", ", statuses);
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         long serverTime = fetchServerTimestamp();
         long now = System.currentTimeMillis();
