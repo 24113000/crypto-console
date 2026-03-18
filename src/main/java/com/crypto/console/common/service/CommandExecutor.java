@@ -216,6 +216,7 @@ public class CommandExecutor {
         ExchangeClient ex2 = registry.getClient(cmd.exchange2);
         BuyInfoResult buyInfo = ex1.buyInfo(cmd.baseAsset, cmd.quoteAsset, cmd.quoteAmount);
         BuyInfoResult sellInfo = ex2.sellInfo(cmd.baseAsset, cmd.quoteAsset, cmd.quoteAmount);
+        String withdrawStatus = ex1.getWithdrawStatus(cmd.baseAsset);
         java.math.BigDecimal ask = buyInfo.averagePrice;
         java.math.BigDecimal bid = sellInfo.averagePrice;
         if (ask == null || ask.signum() <= 0 || bid == null || bid.signum() <= 0) {
@@ -229,7 +230,9 @@ public class CommandExecutor {
                 + " " + cmd.baseAsset + "/" + cmd.quoteAsset
                 + " amount=" + cmd.quoteAmount + " " + cmd.quoteAsset
                 + ": ask=" + ask + " (" + ex1.name() + "), bid=" + bid + " (" + ex2.name() + ")"
-                + ", spread=" + spreadPct + "%";
+                + ", spread=" + spreadPct + "%"
+                + System.lineSeparator()
+                + withdrawStatus;
         logSuccess(message);
         return CommandResult.success(message);
     }

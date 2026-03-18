@@ -34,6 +34,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -182,6 +183,30 @@ public class KuCoinClient extends BaseExchangeClient implements DepositNetworkPr
             throw new ExchangeException("Missing withdrawal id from KuCoin withdrawal API");
         }
         return new WithdrawResult(withdrawalId, "SUBMITTED", "withdraw submitted");
+    }
+
+    @Override
+    public String getWithdrawStatus(String asset) {
+        CurrencyMeta currency = resolveCurrency(asset);
+        if (currency.chains.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+
+        List<ChainMeta> chains = new ArrayList<>(currency.chains);
+        chains.sort(Comparator.comparing(chain -> StringUtils.defaultString(chain.chainName)));
+
+        List<String> statuses = new ArrayList<>();
+        for (ChainMeta chain : chains) {
+            WithdrawQuota quota = fetchWithdrawQuota(currency.currency, chain);
+            boolean enabled = quota == null ? chain.isWithdrawEnabled : quota.enabled;
+            String reason = quota == null ? "quota check unavailable" : quota.reason;
+            String status = chain.chainName + "=" + (enabled ? "enabled" : "disabled");
+            if (reason != null) {
+                status += " (" + reason + ")";
+            }
+            statuses.add(status);
+        }
+        return "withdraw status: " + String.join(", ", statuses);
     }
 
     @Override
@@ -396,6 +421,46 @@ public class KuCoinClient extends BaseExchangeClient implements DepositNetworkPr
         throw new ExchangeException("Network is required for " + currency.currency + " (available: " + sb + ")");
     }
 
+    private Map<String, String> quotaParams(String currency, ChainMeta chain) {
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("currency", currency);
+        params.put("chain", StringUtils.defaultIfBlank(chain.chainId, chain.chainName));
+        return params;
+    }
+
+    private WithdrawQuota fetchWithdrawQuota(String currency, ChainMeta chain) {
+        ExchangeException last = null;
+        for (String candidate : quotaChainCandidates(chain)) {
+            try {
+                JsonNode data = requireOk(signedGet("/api/v1/withdrawals/quotas", Map.of("currency", currency, "chain", candidate)), "withdrawal quotas").get("data");
+                boolean enabled = data.path("isWithdrawEnabled").asBoolean(chain.isWithdrawEnabled);
+                String reason = StringUtils.trimToNull(textOf(data, "reason"));
+                return new WithdrawQuota(enabled, reason);
+            } catch (ExchangeException ex) {
+                last = ex;
+                if (isRetriableWithdrawQuotaError(ex)) {
+                    continue;
+                }
+                throw ex;
+            }
+        }
+        if (last != null) {
+            LOG.info("KuCoin withdrawal quota lookup fallback for {} {}: {}", currency, chain.chainName, last.getUserMessage());
+        }
+        return null;
+    }
+
+    private List<String> quotaChainCandidates(ChainMeta chain) {
+        List<String> candidates = new ArrayList<>();
+        if (StringUtils.isNotBlank(chain.chainName)) {
+            candidates.add(chain.chainName);
+        }
+        if (StringUtils.isNotBlank(chain.chainId) && !chain.chainId.equalsIgnoreCase(chain.chainName)) {
+            candidates.add(chain.chainId);
+        }
+        return candidates;
+    }
+
     private JsonNode placeOrder(Map<String, Object> body) {
         JsonNode root = requireOk(signedPost("/api/v1/orders", body), "order");
         JsonNode data = root.get("data");
@@ -547,6 +612,11 @@ public class KuCoinClient extends BaseExchangeClient implements DepositNetworkPr
     private boolean isDepositDisabledError(ExchangeException ex) {
         String m = StringUtils.defaultString(ex.getUserMessage()).toLowerCase();
         return m.contains("code=260200") || m.contains("deposit.disabled");
+    }
+
+    private boolean isRetriableWithdrawQuotaError(ExchangeException ex) {
+        String m = StringUtils.defaultString(ex.getUserMessage()).toLowerCase();
+        return m.contains("code=900014") || m.contains("not exist");
     }
 
     private JsonNode publicGet(String path, Map<String, String> params) {
@@ -741,6 +811,9 @@ public class KuCoinClient extends BaseExchangeClient implements DepositNetworkPr
     }
 
     private record CurrencyMeta(String currency, List<ChainMeta> chains) {
+    }
+
+    private record WithdrawQuota(boolean enabled, String reason) {
     }
 
     private enum EndpointAttempt {

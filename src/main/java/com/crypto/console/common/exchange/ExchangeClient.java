@@ -23,6 +23,10 @@ public interface ExchangeClient {
 
     WithdrawResult withdraw(String asset, BigDecimal amount, String network, String address, String memoOrNull);
 
+    default String getWithdrawStatus(String asset) {
+        return "withdraw status: not implemented";
+    }
+
     ExchangeTime syncTime();
 
     ExchangeCapabilities capabilities();
