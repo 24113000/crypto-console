@@ -361,6 +361,55 @@ public class MexcClient extends BaseExchangeClient implements DepositNetworkProv
         }
     }
 
+    @Override
+    public String getWithdrawStatus(String asset) {
+        if (StringUtils.isBlank(asset)) {
+            throw new ExchangeException("Asset is required");
+        }
+        String apiKey = secrets == null ? null : secrets.getApiKey();
+        String apiSecret = secrets == null ? null : secrets.getApiSecret();
+        if (StringUtils.isBlank(apiKey) || StringUtils.isBlank(apiSecret)) {
+            throw new ExchangeException("Missing API credentials for mexc");
+        }
+        long ts = getServerTime();
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("timestamp", String.valueOf(ts));
+        params.put("recvWindow", "5000");
+        String query = signQuery(params, apiSecret);
+        String uri = "/api/v3/capital/config/getall?" + query;
+        LOG.info("mexc GET {}", LogSanitizer.sanitize(uri));
+        JsonNode response = getJson(uri, apiKey);
+        if (response == null || !response.isArray()) {
+            throw new ExchangeException("Unexpected response from MEXC config API");
+        }
+        for (JsonNode coin : response) {
+            String coinName = coin.hasNonNull("coin") ? coin.get("coin").asText() : null;
+            if (coinName == null || !coinName.equalsIgnoreCase(asset)) {
+                continue;
+            }
+            JsonNode networkList = coin.get("networkList");
+            if (networkList == null || !networkList.isArray() || networkList.isEmpty()) {
+                return "withdraw status: unavailable";
+            }
+            java.util.List<String> statuses = new java.util.ArrayList<>();
+            for (JsonNode network : networkList) {
+                String name = network.hasNonNull("netWork") ? network.get("netWork").asText()
+                        : (network.hasNonNull("network") ? network.get("network").asText() : null);
+                if (StringUtils.isBlank(name)) {
+                    continue;
+                }
+                boolean enabled = network.hasNonNull("withdrawEnable") && network.get("withdrawEnable").asBoolean(false);
+                String status = name.trim().toUpperCase() + "=" + (enabled ? "enabled" : "disabled");
+                statuses.add(status);
+            }
+            if (statuses.isEmpty()) {
+                return "withdraw status: unavailable";
+            }
+            return "withdraw status: " + String.join(", ", statuses);
+        }
+        return "withdraw status: unavailable";
+    }
+
     private WithdrawResult doWithdraw(boolean includeCoin, boolean includeCurrency, String networkKey, String asset, BigDecimal amount, String network,
                                       String address, String memoOrNull, String apiKey, String apiSecret) {
         long timestamp = getServerTime();

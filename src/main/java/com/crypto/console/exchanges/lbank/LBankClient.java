@@ -276,6 +276,29 @@ public class LBankClient extends BaseExchangeClient implements DepositNetworkPro
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        if (StringUtils.isBlank(asset)) {
+            throw new ExchangeException("Asset is required");
+        }
+        CoinConfig coin = resolveCoin(asset);
+        if (coin.networks == null || coin.networks.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        List<String> statuses = new ArrayList<>();
+        for (NetworkConfig network : coin.networks) {
+            String name = StringUtils.defaultIfBlank(network.name, network.network);
+            if (StringUtils.isBlank(name)) {
+                continue;
+            }
+            statuses.add(name.trim().toUpperCase() + "=" + (network.withdrawEnabled ? "enabled" : "disabled"));
+        }
+        if (statuses.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        return "withdraw status: " + String.join(", ", statuses);
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         long serverTime = getServerTime();
         long offset = serverTime - System.currentTimeMillis();

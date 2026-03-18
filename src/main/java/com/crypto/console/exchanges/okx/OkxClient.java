@@ -227,6 +227,25 @@ public class OkxClient extends BaseExchangeClient implements DepositNetworkProvi
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        CurrencyMeta currencyMeta = resolveCurrency(asset);
+        if (currencyMeta.chains == null || currencyMeta.chains.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        List<String> statuses = new ArrayList<>();
+        for (ChainMeta chain : currencyMeta.chains) {
+            if (StringUtils.isBlank(chain.chain)) {
+                continue;
+            }
+            statuses.add(StringUtils.upperCase(chain.chain) + "=" + (chain.canWd ? "enabled" : "disabled"));
+        }
+        if (statuses.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        return "withdraw status: " + String.join(", ", statuses);
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         JsonNode result = requireOk(publicGet("/api/v5/public/time", Map.of()), "server time");
         JsonNode data = result.get("data");

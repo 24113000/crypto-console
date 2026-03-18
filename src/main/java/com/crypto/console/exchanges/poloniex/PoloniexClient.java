@@ -150,6 +150,25 @@ public class PoloniexClient extends BaseExchangeClient implements DepositNetwork
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        CurrencyV2 c = resolveCurrency(asset);
+        if (c.networks == null || c.networks.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        List<String> statuses = new ArrayList<>();
+        for (NetworkV2 n : c.networks) {
+            if (StringUtils.isBlank(n.blockchain)) {
+                continue;
+            }
+            statuses.add(StringUtils.upperCase(n.blockchain) + "=" + (n.withdrawalEnabled ? "enabled" : "disabled"));
+        }
+        if (statuses.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        return "withdraw status: " + String.join(", ", statuses);
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         JsonNode t = publicGet("/timestamp", Map.of());
         long server = t.isNumber() ? t.asLong() : t.asLong(System.currentTimeMillis());
