@@ -185,6 +185,25 @@ public class BitgetClient extends BaseExchangeClient implements DepositNetworkPr
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        CoinInfo coin = resolveCoin(asset);
+        if (coin.chains == null || coin.chains.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        List<String> statuses = new ArrayList<>();
+        for (ChainInfo chain : coin.chains) {
+            if (StringUtils.isBlank(chain.chain)) {
+                continue;
+            }
+            statuses.add(StringUtils.upperCase(chain.chain) + "=" + (chain.withdrawable ? "enabled" : "disabled"));
+        }
+        if (statuses.isEmpty()) {
+            return "withdraw status: unavailable";
+        }
+        return "withdraw status: " + String.join(", ", statuses);
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         JsonNode data = requireOk(publicGet("/api/v2/public/time", Map.of()), "server time");
         long server = longValue(data, "serverTime");
