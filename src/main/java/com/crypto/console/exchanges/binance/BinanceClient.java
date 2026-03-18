@@ -321,6 +321,70 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
     }
 
     @Override
+    public String getWithdrawStatus(String asset) {
+        if (StringUtils.isBlank(asset)) {
+            throw new ExchangeException("Asset is required");
+        }
+        String apiKey = secrets == null ? null : secrets.getApiKey();
+        String apiSecret = secrets == null ? null : secrets.getApiSecret();
+        if (StringUtils.isBlank(apiKey) || StringUtils.isBlank(apiSecret)) {
+            throw new ExchangeException("Missing API credentials for binance");
+        }
+
+        long timestamp = System.currentTimeMillis();
+        String query = "timestamp=" + timestamp + "&recvWindow=5000";
+        String signature = sign(query, apiSecret);
+        String uri = "/sapi/v1/capital/config/getall?" + query + "&signature=" + signature;
+
+        LOG.info("binance GET {}", LogSanitizer.sanitize(uri));
+        JsonNode response = webClient.get()
+                .uri(uri)
+                .header(HttpHeaders.USER_AGENT, "crypto-console")
+                .header("X-MBX-APIKEY", apiKey)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
+
+        if (response == null || !response.isArray()) {
+            throw new ExchangeException("Unexpected response from Binance config API");
+        }
+
+        for (JsonNode coin : response) {
+            String coinName = coin.hasNonNull("coin") ? coin.get("coin").asText() : null;
+            if (coinName == null || !coinName.equalsIgnoreCase(asset)) {
+                continue;
+            }
+            JsonNode networkList = coin.get("networkList");
+            if (networkList == null || !networkList.isArray() || networkList.isEmpty()) {
+                boolean enabled = coin.path("withdrawAllEnable").asBoolean(false);
+                return "withdraw status: " + (enabled ? "enabled" : "disabled");
+            }
+
+            List<String> statuses = new ArrayList<>();
+            for (JsonNode network : networkList) {
+                String name = network.hasNonNull("network") ? network.get("network").asText() : null;
+                if (StringUtils.isBlank(name)) {
+                    continue;
+                }
+                boolean enabled = network.path("withdrawEnable").asBoolean(false);
+                String reason = StringUtils.trimToNull(textOf(network, "withdrawDesc"));
+                String status = name.trim().toUpperCase() + "=" + (enabled ? "enabled" : "disabled");
+                if (reason != null) {
+                    status += " (" + reason + ")";
+                }
+                statuses.add(status);
+            }
+            if (statuses.isEmpty()) {
+                boolean enabled = coin.path("withdrawAllEnable").asBoolean(false);
+                return "withdraw status: " + (enabled ? "enabled" : "disabled");
+            }
+            return "withdraw status: " + String.join(", ", statuses);
+        }
+
+        return "withdraw status: unavailable";
+    }
+
+    @Override
     public ExchangeTime syncTime() {
         throw notImplemented("GET /api/v3/time (public)");
     }
@@ -786,6 +850,21 @@ public class BinanceClient extends BaseExchangeClient implements DepositNetworkP
             return BigDecimal.ZERO;
         }
         return new BigDecimal(text);
+    }
+
+    private String textOf(JsonNode node, String... keys) {
+        if (node == null || keys == null) {
+            return null;
+        }
+        for (String key : keys) {
+            if (node.hasNonNull(key)) {
+                String value = node.get(key).asText();
+                if (StringUtils.isNotBlank(value)) {
+                    return value;
+                }
+            }
+        }
+        return null;
     }
 
     @Override
