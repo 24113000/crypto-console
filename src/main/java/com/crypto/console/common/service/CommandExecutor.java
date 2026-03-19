@@ -6,7 +6,9 @@ import com.crypto.console.common.command.impl.BalanceCommand;
 import com.crypto.console.common.command.impl.BalancesCommand;
 import com.crypto.console.common.command.impl.BuyCommand;
 import com.crypto.console.common.command.impl.BuyInfoCommand;
+import com.crypto.console.common.command.impl.BuyInfosCommand;
 import com.crypto.console.common.command.impl.SellInfoCommand;
+import com.crypto.console.common.command.impl.SellInfosCommand;
 import com.crypto.console.common.command.impl.DepositCommand;
 import com.crypto.console.common.command.impl.SpreadCommand;
 import com.crypto.console.common.command.impl.InvalidCommand;
@@ -27,7 +29,9 @@ import com.crypto.console.common.util.LogSanitizer;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 
@@ -56,7 +60,9 @@ public class CommandExecutor {
                 case ORDERBOOK -> handleOrderBook((OrderBookCommand) command);
                 case BUY -> handleBuy((BuyCommand) command);
                 case BUYINFO -> handleBuyInfo((BuyInfoCommand) command);
+                case BUYINFOS -> handleBuyInfos((BuyInfosCommand) command);
                 case SELLINFO -> handleSellInfo((SellInfoCommand) command);
+                case SELLINFOS -> handleSellInfos((SellInfosCommand) command);
                 case SPREAD -> handleSpread((SpreadCommand) command);
                 case SELL -> handleSell((SellCommand) command);
                 case MOVE -> handleMove((MoveCommand) command);
@@ -143,7 +149,7 @@ public class CommandExecutor {
     private CommandResult handleBuyInfo(BuyInfoCommand cmd) {
         ExchangeClient client = registry.getClient(cmd.exchange);
         BuyInfoResult result = client.buyInfo(cmd.baseAsset, cmd.quoteAsset, cmd.quoteAmount);
-        String message = "BUYINFO " + client.name()
+        String message = "ASKINFO " + client.name()
                 + " " + result.symbol
                 + ": for " + result.requestedQuoteAmount + " " + cmd.quoteAsset
                 + " -> buy " + result.boughtBaseAmount + " " + cmd.baseAsset
@@ -171,6 +177,34 @@ public class CommandExecutor {
         return CommandResult.success(message);
     }
 
+    private CommandResult handleBuyInfos(BuyInfosCommand cmd) {
+        List<BuyInfosRow> rows = new ArrayList<>();
+        for (String exchange : registry.getAvailableExchanges()) {
+            try {
+                ExchangeClient client = registry.getClient(exchange);
+                BuyInfoResult result = client.buyInfo(cmd.baseAsset, cmd.quoteAsset, cmd.quoteAmount);
+                rows.add(BuyInfosRow.success(
+                        client.name(),
+                        result.symbol,
+                        toDisplayValue(result.averagePrice),
+                        toDisplayValue(result.boughtBaseAmount),
+                        toDisplayValue(result.spentQuoteAmount)
+                ));
+            } catch (Exception e) {
+                rows.add(BuyInfosRow.error(exchange));
+            }
+        }
+
+        rows.sort(Comparator
+                .comparing(BuyInfosRow::hasPrice).reversed()
+                .thenComparing(BuyInfosRow::averageAskAsDecimal, Comparator.nullsLast(Comparator.reverseOrder()))
+                .thenComparing(BuyInfosRow::exchange));
+
+        String message = formatBuyInfosTable(rows, cmd.baseAsset, cmd.quoteAsset);
+        logSuccess(LogSanitizer.sanitize(message));
+        return CommandResult.success(message);
+    }
+
     private CommandResult handleSell(SellCommand cmd) {
         requireSecrets(cmd.exchange);
         ExchangeClient client = registry.getClient(cmd.exchange);
@@ -186,7 +220,7 @@ public class CommandExecutor {
     private CommandResult handleSellInfo(SellInfoCommand cmd) {
         ExchangeClient client = registry.getClient(cmd.exchange);
         BuyInfoResult result = client.sellInfo(cmd.baseAsset, cmd.quoteAsset, cmd.quoteAmount);
-        String message = "SELLINFO " + client.name()
+        String message = "BIDINFO " + client.name()
                 + " " + result.symbol
                 + ": for " + result.requestedQuoteAmount + " " + cmd.quoteAsset
                 + " -> sell " + result.boughtBaseAmount + " " + cmd.baseAsset
@@ -211,6 +245,34 @@ public class CommandExecutor {
             message = sb.toString();
         }
         logSuccess(message);
+        return CommandResult.success(message);
+    }
+
+    private CommandResult handleSellInfos(SellInfosCommand cmd) {
+        List<SellInfosRow> rows = new ArrayList<>();
+        for (String exchange : registry.getAvailableExchanges()) {
+            try {
+                ExchangeClient client = registry.getClient(exchange);
+                BuyInfoResult result = client.sellInfo(cmd.baseAsset, cmd.quoteAsset, cmd.quoteAmount);
+                rows.add(SellInfosRow.success(
+                        client.name(),
+                        result.symbol,
+                        toDisplayValue(result.averagePrice),
+                        toDisplayValue(result.boughtBaseAmount),
+                        toDisplayValue(result.spentQuoteAmount)
+                ));
+            } catch (Exception e) {
+                rows.add(SellInfosRow.error(exchange));
+            }
+        }
+
+        rows.sort(Comparator
+                .comparing(SellInfosRow::hasPrice).reversed()
+                .thenComparing(SellInfosRow::averageBidAsDecimal, Comparator.nullsLast(Comparator.reverseOrder()))
+                .thenComparing(SellInfosRow::exchange));
+
+        String message = formatSellInfosTable(rows, cmd.baseAsset, cmd.quoteAsset);
+        logSuccess(LogSanitizer.sanitize(message));
         return CommandResult.success(message);
     }
 
@@ -305,6 +367,141 @@ public class CommandExecutor {
         return sb.toString();
     }
 
+    private String formatBuyInfosTable(List<BuyInfosRow> rows, String baseAsset, String quoteAsset) {
+        String avgAskHeader = "avg ask (" + quoteAsset + ")";
+        String baseAmountHeader = "buy " + baseAsset;
+        String spentQuoteHeader = "spend " + quoteAsset;
+
+        int exchangeWidth = "exchange".length();
+        int symbolWidth = "symbol".length();
+        int avgAskWidth = avgAskHeader.length();
+        int baseAmountWidth = baseAmountHeader.length();
+        int spentQuoteWidth = spentQuoteHeader.length();
+        int statusWidth = "success".length();
+
+        for (BuyInfosRow row : rows) {
+            exchangeWidth = Math.max(exchangeWidth, row.exchange.length());
+            symbolWidth = Math.max(symbolWidth, row.symbol.length());
+            avgAskWidth = Math.max(avgAskWidth, row.averageAsk.length());
+            baseAmountWidth = Math.max(baseAmountWidth, row.baseAmount.length());
+            spentQuoteWidth = Math.max(spentQuoteWidth, row.spentQuote.length());
+            statusWidth = Math.max(statusWidth, row.status.length());
+        }
+
+        String format = "%-" + exchangeWidth + "s | %-" + symbolWidth + "s | %-" + avgAskWidth + "s | %-" + baseAmountWidth + "s | %-" + spentQuoteWidth + "s | %-" + statusWidth + "s";
+        String separator = "-".repeat(exchangeWidth) + "-+-"
+                + "-".repeat(symbolWidth) + "-+-"
+                + "-".repeat(avgAskWidth) + "-+-"
+                + "-".repeat(baseAmountWidth) + "-+-"
+                + "-".repeat(spentQuoteWidth) + "-+-"
+                + "-".repeat(statusWidth);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(format, "exchange", "symbol", avgAskHeader, baseAmountHeader, spentQuoteHeader, "success"));
+        sb.append("\n").append(separator);
+        for (BuyInfosRow row : rows) {
+            sb.append("\n").append(String.format(
+                    format,
+                    row.exchange,
+                    row.symbol,
+                    row.averageAsk,
+                    row.baseAmount,
+                    row.spentQuote,
+                    row.status
+            ));
+        }
+        PriceSummary summary = summarizePrices(rows.stream()
+                .map(BuyInfosRow::averageAskAsDecimal)
+                .toList());
+        appendPriceSummary(sb, avgAskHeader, quoteAsset, summary);
+        return sb.toString();
+    }
+
+    private String formatSellInfosTable(List<SellInfosRow> rows, String baseAsset, String quoteAsset) {
+        String avgBidHeader = "avg bid (" + quoteAsset + ")";
+        String baseAmountHeader = "sell " + baseAsset;
+        String proceedsHeader = "get " + quoteAsset;
+
+        int exchangeWidth = "exchange".length();
+        int symbolWidth = "symbol".length();
+        int avgBidWidth = avgBidHeader.length();
+        int baseAmountWidth = baseAmountHeader.length();
+        int proceedsWidth = proceedsHeader.length();
+        int statusWidth = "success".length();
+
+        for (SellInfosRow row : rows) {
+            exchangeWidth = Math.max(exchangeWidth, row.exchange.length());
+            symbolWidth = Math.max(symbolWidth, row.symbol.length());
+            avgBidWidth = Math.max(avgBidWidth, row.averageBid.length());
+            baseAmountWidth = Math.max(baseAmountWidth, row.baseAmount.length());
+            proceedsWidth = Math.max(proceedsWidth, row.quoteAmount.length());
+            statusWidth = Math.max(statusWidth, row.status.length());
+        }
+
+        String format = "%-" + exchangeWidth + "s | %-" + symbolWidth + "s | %-" + avgBidWidth + "s | %-" + baseAmountWidth + "s | %-" + proceedsWidth + "s | %-" + statusWidth + "s";
+        String separator = "-".repeat(exchangeWidth) + "-+-"
+                + "-".repeat(symbolWidth) + "-+-"
+                + "-".repeat(avgBidWidth) + "-+-"
+                + "-".repeat(baseAmountWidth) + "-+-"
+                + "-".repeat(proceedsWidth) + "-+-"
+                + "-".repeat(statusWidth);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(format, "exchange", "symbol", avgBidHeader, baseAmountHeader, proceedsHeader, "success"));
+        sb.append("\n").append(separator);
+        for (SellInfosRow row : rows) {
+            sb.append("\n").append(String.format(
+                    format,
+                    row.exchange,
+                    row.symbol,
+                    row.averageBid,
+                    row.baseAmount,
+                    row.quoteAmount,
+                    row.status
+            ));
+        }
+        PriceSummary summary = summarizePrices(rows.stream()
+                .map(SellInfosRow::averageBidAsDecimal)
+                .toList());
+        appendPriceSummary(sb, avgBidHeader, quoteAsset, summary);
+        return sb.toString();
+    }
+
+    private void appendPriceSummary(StringBuilder sb, String priceHeader, String quoteAsset, PriceSummary summary) {
+        if (summary.count == 0) {
+            return;
+        }
+        sb.append("\n");
+        sb.append("\n").append("avg price: ").append(toDisplayValue(summary.average)).append(" ").append(quoteAsset);
+        sb.append("\n").append("min price: ").append(toDisplayValue(summary.min)).append(" ").append(quoteAsset);
+        sb.append("\n").append("max price: ").append(toDisplayValue(summary.max)).append(" ").append(quoteAsset);
+    }
+
+    private PriceSummary summarizePrices(List<BigDecimal> prices) {
+        BigDecimal sum = BigDecimal.ZERO;
+        BigDecimal min = null;
+        BigDecimal max = null;
+        int count = 0;
+
+        for (BigDecimal price : prices) {
+            if (price == null) {
+                continue;
+            }
+            sum = sum.add(price);
+            min = min == null ? price : min.min(price);
+            max = max == null ? price : max.max(price);
+            count++;
+        }
+
+        if (count == 0) {
+            return new PriceSummary(BigDecimal.ZERO, null, null, 0);
+        }
+
+        BigDecimal average = sum.divide(BigDecimal.valueOf(count), 16, RoundingMode.HALF_UP)
+                .stripTrailingZeros();
+        return new PriceSummary(average, min, max, count);
+    }
+
     private String formatTotalBalance(Balance balance) {
         BigDecimal free = balance.free == null ? BigDecimal.ZERO : balance.free;
         BigDecimal locked = balance.locked == null ? BigDecimal.ZERO : balance.locked;
@@ -318,6 +515,10 @@ public class CommandExecutor {
         return new BigDecimal(value);
     }
 
+    private String toDisplayValue(BigDecimal value) {
+        return value == null ? "" : value.stripTrailingZeros().toPlainString();
+    }
+
     private void requireSecrets(String exchange) {
         if (!registry.hasSecrets(exchange)) {
             throw new ExchangeException("Missing API credentials for exchange: " + exchange);
@@ -329,8 +530,10 @@ public class CommandExecutor {
                 "Commands:",
                 "  move <from> <to> <amount> <asset>",
                 "  buy <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
-                "  buyinfo <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
-                "  sellinfo <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
+                "  askinfo <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
+                "  askinfos <baseAsset> <quoteAmount> <quoteAsset>",
+                "  bidinfo <exchange> <baseAsset> <quoteAmount> <quoteAsset>",
+                "  bidinfos <baseAsset> <quoteAmount> <quoteAsset>",
                 "  spread <ex1> <ex2> <baseAsset> <quoteAmount> <quoteAsset>",
                 "  sell <exchange> <baseAsset> <baseAmount> <quoteAsset>",
                 "  balance <exchange> <asset>",
@@ -344,5 +547,58 @@ public class CommandExecutor {
     }
 
     private record BalanceRow(String exchange, String balance, String status) {
+    }
+
+    private record BuyInfosRow(
+            String exchange,
+            String symbol,
+            String averageAsk,
+            String baseAmount,
+            String spentQuote,
+            String status
+    ) {
+        private static BuyInfosRow success(String exchange, String symbol, String averageAsk, String baseAmount, String spentQuote) {
+            return new BuyInfosRow(exchange, symbol, averageAsk, baseAmount, spentQuote, "ok");
+        }
+
+        private static BuyInfosRow error(String exchange) {
+            return new BuyInfosRow(exchange, "", "", "", "", "error");
+        }
+
+        private boolean hasPrice() {
+            return !averageAsk.isBlank();
+        }
+
+        private BigDecimal averageAskAsDecimal() {
+            return hasPrice() ? new BigDecimal(averageAsk) : null;
+        }
+    }
+
+    private record SellInfosRow(
+            String exchange,
+            String symbol,
+            String averageBid,
+            String baseAmount,
+            String quoteAmount,
+            String status
+    ) {
+        private static SellInfosRow success(String exchange, String symbol, String averageBid, String baseAmount, String quoteAmount) {
+            return new SellInfosRow(exchange, symbol, averageBid, baseAmount, quoteAmount, "ok");
+        }
+
+        private static SellInfosRow error(String exchange) {
+            return new SellInfosRow(exchange, "", "", "", "", "error");
+        }
+
+        private boolean hasPrice() {
+            return !averageBid.isBlank();
+        }
+
+        private BigDecimal averageBidAsDecimal() {
+            return hasPrice() ? new BigDecimal(averageBid) : null;
+        }
+    }
+
+    private record PriceSummary(BigDecimal average, BigDecimal min, BigDecimal max, int count) {
     }
 }
